@@ -1,0 +1,4 @@
+# Phase 02 core uses Python standard library only.
+# Optional integrations must be pinned and reviewed before installation.
+# dvc>=3.0,<4.0  # install only when a remote and storage policy are approved
+# mlflow>=2.0,<4.0  # install only when an experiment tracking backend is approved

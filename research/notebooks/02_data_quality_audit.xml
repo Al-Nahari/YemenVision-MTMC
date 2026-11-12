@@ -1,0 +1,27 @@
+<VSCode.Cell id="quality-intro" language="markdown">
+# تدقيق جودة البيانات
+
+يطبق الدفتر فحوصات schema والتكرار وmissingness وتوزيعات الحقول على JSONL موحد. فحوصات decode للفيديو تتطلب backend وسجلات فعلية، لذلك لا تُعلن هنا دون مدخلات.
+</VSCode.Cell>
+<VSCode.Cell id="quality-code" language="python">
+from pathlib import Path
+import sys
+
+RESEARCH_ROOT = Path.cwd().parent if Path.cwd().name == 'notebooks' else Path.cwd()
+sys.path.insert(0, str(RESEARCH_ROOT))
+from data_engineering.adapters import create_adapter
+from data_engineering.quality import validate_records
+
+source_root = RESEARCH_ROOT / 'data' / 'interim' / 'fixture'
+if (source_root / 'annotations.jsonl').exists():
+    adapter = create_adapter('cityflow', source_root, 'fixture')
+    report = validate_records(adapter.iter_records())
+else:
+    report = {'status': 'waiting_for_release_normalized_jsonl'}
+report
+</VSCode.Cell>
+<VSCode.Cell id="quality-export" language="markdown">
+## التصدير
+
+احفظ التقرير في `data/reports/` مع release وdata hash ونسخة config. لا تستخدم التقرير كدليل جودة لمصدر لم يُقرأ فعليًا.
+</VSCode.Cell>

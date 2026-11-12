@@ -1,0 +1,30 @@
+schema_version: "1.0"
+project: "YemenVision MTMC"
+phase: "02"
+paths:
+  raw: "data/raw"
+  interim: "data/interim"
+  processed: "data/processed"
+  reports: "data/reports"
+  manifests: "data/manifests"
+quality:
+  fail_on_corrupt_file: true
+  fail_on_invalid_bbox: true
+  duplicate_hash_algorithm: "sha256"
+  minimum_image_width: 1
+  minimum_image_height: 1
+splits:
+  reid:
+    group_by: "vehicle_id"
+    seed: 17
+  mot:
+    group_by: "video_id"
+    seed: 17
+  mtmc:
+    group_by: "vehicle_id"
+    seed: 17
+privacy:
+  default_redaction: true
+  retain_raw: false
+  raw_requires_authorization: true
+  plate_text_as_identity: false

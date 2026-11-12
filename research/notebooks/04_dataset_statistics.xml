@@ -1,0 +1,26 @@
+<VSCode.Cell id="statistics-intro" language="markdown">
+# إحصاءات البيانات
+
+ينتج الدفتر counts للفئات والكاميرات والهويات وحالات annotation. الرسوم اختيارية وتحتاج matplotlib؛ عدم توفرها لا يغير صحة التقرير النصي.
+</VSCode.Cell>
+<VSCode.Cell id="statistics-code" language="python">
+from pathlib import Path
+import sys
+
+RESEARCH_ROOT = Path.cwd().parent if Path.cwd().name == 'notebooks' else Path.cwd()
+sys.path.insert(0, str(RESEARCH_ROOT))
+from data_engineering.adapters import create_adapter
+from data_engineering.quality import validate_records
+
+source_root = RESEARCH_ROOT / 'data' / 'interim' / 'fixture'
+if (source_root / 'annotations.jsonl').exists():
+    report = validate_records(create_adapter('cityflow', source_root, 'fixture').iter_records())
+else:
+    report = {'status': 'no_release_data_available'}
+report
+</VSCode.Cell>
+<VSCode.Cell id="statistics-interpretation" language="markdown">
+## تفسير
+
+قارِن التوزيعات بين split والكاميرا والزمن. لا تستنتج توازنًا أو صلاحية تدريب من fixture صغيرة، ولا تخلط بين dataset-level counts ونتائج النموذج.
+</VSCode.Cell>

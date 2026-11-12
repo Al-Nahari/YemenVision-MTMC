@@ -1,0 +1,11 @@
+[
+  {
+    "dataset": "CityFlow",
+    "release": "UNSET",
+    "url": "https://www.aicitychallenge.org/",
+    "destination": "data/raw/CityFlow/REPLACE_WITH_APPROVED_ARTIFACT",
+    "sha256": "REPLACE_WITH_64_HEX_SHA256_AFTER_OFFICIAL_RELEASE_VERIFICATION",
+    "license_status": "verify-before-use",
+    "approved_for_download": false
+  }
+]

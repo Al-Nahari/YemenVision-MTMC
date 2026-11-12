@@ -1,0 +1,25 @@
+<VSCode.Cell id="visualization-intro" language="markdown">
+# عرض الوسوم
+
+يعرض هذا الدفتر عينة من السجلات والصناديق بعد redaction policy. لا يحاول فتح raw frames تلقائيًا، ولا يعرض لوحات أو وجوهًا. يجب توصيل backend بصور مشتقة ومخفاة فقط.
+</VSCode.Cell>
+<VSCode.Cell id="visualization-code" language="python">
+from pathlib import Path
+import sys
+
+RESEARCH_ROOT = Path.cwd().parent if Path.cwd().name == 'notebooks' else Path.cwd()
+sys.path.insert(0, str(RESEARCH_ROOT))
+from data_engineering.adapters import create_adapter
+
+annotation_path = RESEARCH_ROOT / 'data' / 'interim' / 'fixture' / 'annotations.jsonl'
+rows = []
+if annotation_path.exists():
+    adapter = create_adapter('cityflow', annotation_path.parent, 'fixture')
+    rows = [record.to_dict() for record in adapter.iter_records()]
+rows[:5]
+</VSCode.Cell>
+<VSCode.Cell id="visualization-guidance" language="markdown">
+## قواعد المراجعة
+
+راجع الصندوق المرئي، الفئة، حالة الحجب، والـunknown. سجّل التعديلات كنسخة جديدة ولا تعدل annotation الأصلي بصمت.
+</VSCode.Cell>

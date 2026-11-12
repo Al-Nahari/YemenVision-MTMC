@@ -1,0 +1,19 @@
+<VSCode.Cell id="inventory-intro" language="markdown">
+# جرد البيانات
+
+يقرأ هذا الدفتر ملفات provenance وملفات JSONL الموحدة، ويعرض حالة الإصدارات دون تنزيل بيانات أو افتراض اكتمالها. لا تعتبر النتائج على fixtures نتائج على datasets العامة أو اليمن.
+</VSCode.Cell>
+<VSCode.Cell id="inventory-code" language="python">
+from pathlib import Path
+import json
+
+RESEARCH_ROOT = Path.cwd().parent if Path.cwd().name == 'notebooks' else Path.cwd()
+provenance_path = RESEARCH_ROOT / 'data' / 'manifests' / 'provenance.json'
+provenance = json.loads(provenance_path.read_text(encoding='utf-8'))
+provenance
+</VSCode.Cell>
+<VSCode.Cell id="inventory-notes" language="markdown">
+## تفسير
+
+عدد التنزيلات صفر في bootstrap لأن التراخيص وشروط الوصول لم تُثبت بعد. بعد اعتماد release رسمي، أضف manifest وSHA-256 وdataset card ثم أعد تشغيل الدفتر.
+</VSCode.Cell>

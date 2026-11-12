@@ -1,0 +1,15 @@
+stages:
+  audit_fixture:
+    cmd: >-
+      python -m data_engineering.cli.audit_dataset
+      --dataset cityflow
+      --source-root data/interim/fixture
+      --release fixture
+      --output data/reports/fixture_quality.json
+    deps:
+      - data_engineering
+      - data/interim/fixture/annotations.jsonl
+    outs:
+      - data/reports/fixture_quality.json
+
+# Real datasets must be added only after an approved release manifest and data hash exist.

@@ -1,0 +1,9 @@
+{
+  "phase": "02",
+  "status": "blocked_pending_license_and_access_verification",
+  "downloaded_files": [],
+  "notes": [
+    "No dataset was downloaded because Phase 01 marks access and license terms as verify-before-use.",
+    "Populate this file only from an approved official release manifest after legal/data-owner review."
+  ]
+}
