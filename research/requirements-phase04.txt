@@ -1,0 +1,7 @@
+# Install Phase 03 requirements first for YOLO inference.
+lap>=0.5
+filterpy>=1.4
+motmetrics>=1.4
+trackeval @ git+https://github.com/JonathonLuiten/TrackEval.git
+# Optional algorithm backends: ultralytics (ByteTrack/BoT-SORT), boxmot (OC-SORT/DeepSORT/StrongSORT)
+boxmot>=10
