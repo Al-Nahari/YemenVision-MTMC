@@ -1,0 +1,6 @@
+# Template: populate only from surveyed/calibrated, authorized cameras.
+cameras:
+  cam_a: {zone: unknown, direction: unknown, field_of_view: unknown}
+  cam_b: {zone: unknown, direction: unknown, field_of_view: unknown}
+transitions:
+  - {source: cam_a, target: cam_b, min_seconds: 15, max_seconds: 120, probability: 0.5, calibrated: false}
