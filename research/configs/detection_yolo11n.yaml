@@ -1,0 +1,25 @@
+model: yolo11n.pt
+epochs: 100
+imgsz: 960
+batch: -1
+optimizer: AdamW
+lr0: 0.001
+lrf: 0.01
+warmup_epochs: 3
+weight_decay: 0.0005
+patience: 20
+amp: true
+accumulate: 1
+seed: 17
+workers: 4
+augment:
+  mosaic: 0.5
+  close_mosaic: 10
+  scale: 0.5
+  translate: 0.1
+  hsv_h: 0.01
+  hsv_s: 0.4
+  hsv_v: 0.3
+  fliplr: 0.5
+  blur_probability: 0.1
+  weather_probability: 0.0 # enable only after label-preservation review

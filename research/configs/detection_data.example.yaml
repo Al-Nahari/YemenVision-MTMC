@@ -1,0 +1,14 @@
+# Template only. Copy to detection_data.yaml after approval and fill every path.
+path: /absolute/path/to/approved_vehicle_dataset
+train: images/train
+val: images/val
+test: images/test
+# Classes MUST be the exact categories supported by labelled data.
+names:
+  0: car
+  1: bus
+  2: truck
+  3: motorcycle
+  4: bicycle
+# Optional manifest: rows contain image, split, domain (public|yemen_local), group_id.
+split_manifest: /absolute/path/to/split_manifest.csv
