@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: yemenvision-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://traffic:traffic_secure_pass@postgres:5432/traffic
+      - API_KEYS_JSON={"admin":{"subject":"admin-user","roles":["admin","operator"]}}
+      - DETECTOR_WEIGHTS=artifacts/best.pt
+      - REID_WEIGHTS=artifacts/reid_best.pt
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: yemenvision-postgres
+    environment:
+      POSTGRES_DB: traffic
+      POSTGRES_USER: traffic
+      POSTGRES_PASSWORD: traffic_secure_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traffic -d traffic"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: yemenvision-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local

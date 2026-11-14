@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Databases & Runtime State
+*.db
+*.sqlite
+*.sqlite3
+test_platform.db
+backend/test_platform.db
+
+# Machine Learning Models & Heavy Artifacts
+*.pt
+*.pth
+*.bin
+*.weights
+*.onnx
+*.engine
+*.tflite
+runs/
+artifacts/
+*.part
+
+# Datasets & Local Media
+datasets/
+data/raw/
+data/interim/
+data/prepared/
+research/data/raw/
+research/data/interim/
+research/data/prepared/
+*.mp4
+*.avi
+*.mkv
+*.mov
+
+# Environment Variables & Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Node / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.angular/
+dist/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
