@@ -5,6 +5,8 @@ from datetime import datetime
 from math import isfinite
 from typing import Any
 
+import numpy as np
+
 @dataclass
 class Tracklet:
     camera_id: str
@@ -30,10 +32,14 @@ class CrossCameraAssociator:
 
     @staticmethod
     def _cosine(a: list[float], b: list[float]) -> float:
-        dot = sum(x * y for x, y in zip(a, b))
-        na = sum(x * x for x in a) ** 0.5
-        nb = sum(y * y for y in b) ** 0.5
-        return dot / (na * nb) if na and nb else -1.0
+        left = np.asarray(a, dtype=np.float32)
+        right = np.asarray(b, dtype=np.float32)
+        if left.ndim != 1 or right.ndim != 1 or left.shape != right.shape:
+            raise ValueError(f"embedding dimensions do not match: {left.shape} vs {right.shape}")
+        left_norm = float(np.linalg.norm(left)); right_norm = float(np.linalg.norm(right))
+        if left_norm == 0.0 or right_norm == 0.0:
+            raise ValueError("zero-norm embedding cannot be associated")
+        return float(np.dot(left, right) / (left_norm * right_norm))
 
     def candidate(self, source: Tracklet, target: Tracklet) -> Link | None:
         transition = self.transitions.get(source.camera_id, {}).get(target.camera_id)
@@ -42,7 +48,10 @@ class CrossCameraAssociator:
         elapsed = (target.t_start - source.t_end).total_seconds()
         if not transition["min_seconds"] <= elapsed <= transition["max_seconds"]:
             return None
-        cosine = self._cosine(source.embedding, target.embedding)
+        try:
+            cosine = self._cosine(source.embedding, target.embedding)
+        except ValueError:
+            return None
         if not isfinite(cosine):
             return None
         appearance = (cosine + 1.0) / 2.0

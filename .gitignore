@@ -57,6 +57,8 @@ backend/test_platform.db
 *.tflite
 runs/
 artifacts/
+outputs/runs/
+outputs/cache/
 *.part
 
 # Datasets & Local Media

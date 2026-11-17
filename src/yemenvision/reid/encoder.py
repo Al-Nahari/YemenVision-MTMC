@@ -34,8 +34,11 @@ class ReIDEncoder:
         self.model = nn.Module()
         self.model.backbone = nn.Sequential(*list(base.children())[:-2])
         self.model.pool = nn.AdaptiveAvgPool2d(1)
-        self.model.bn = nn.BatchNorm1d(2048)
-        self.model.classifier = nn.Linear(2048, int(cfg.get("n_cls", 576)))
+        self.embedding_dim = int(cfg.get("embedding_dim", 2048))
+        if self.embedding_dim != 2048:
+            raise ValueError("This checkpoint contract requires a 2048-dimensional ResNet50 feature")
+        self.model.bn = nn.BatchNorm1d(self.embedding_dim)
+        self.model.classifier = nn.Linear(self.embedding_dim, int(cfg.get("n_cls", 576)))
         required = {"backbone.", "bn."}
         if not all(any(k.startswith(prefix) for k in state) for prefix in required):
             raise ValueError("ReID checkpoint lacks required backbone or BNNeck keys; partial loading refused")
@@ -58,7 +61,7 @@ class ReIDEncoder:
 
     def encode(self, crops: list[np.ndarray], batch_size: int = 32) -> np.ndarray:
         if not crops:
-            return np.empty((0, 2048), dtype=np.float32)
+            return np.empty((0, self.embedding_dim), dtype=np.float32)
         outputs: list[np.ndarray] = []
         autocast = self.torch.autocast(device_type="cuda", dtype=self.torch.float16) if self.device.type == "cuda" else _nullcontext()
         with self.torch.inference_mode(), autocast:
@@ -69,7 +72,7 @@ class ReIDEncoder:
                     tensors = self._forward(tensors) + self._forward(self.torch.flip(tensors, dims=[3]))
                     vectors = self.torch.nn.functional.normalize(tensors, dim=1)
                 else:
-                    vectors = self._forward(tensors)
+                    vectors = self.torch.nn.functional.normalize(self._forward(tensors), dim=1)
                 outputs.append(vectors.detach().float().cpu().numpy())
         return np.concatenate(outputs, axis=0)
 
