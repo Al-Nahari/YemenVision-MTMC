@@ -1,0 +1,7 @@
+# Optional reporting-only groups. Raw detector class_id and class_name are never changed.
+groups:
+  two_wheeler: [bicycle, motorbike, scooter]
+  passenger_vehicle: [auto rickshaw, car, minibus, minivan, rickshaw, suv, taxi, three wheelers -CNG-, van]
+  commercial_vehicle: [bus, garbagevan, human hauler, pickup, truck]
+  emergency_vehicle: [ambulance, army vehicle, policecar]
+  non_motorized: [wheelbarrow]

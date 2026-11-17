@@ -2,37 +2,32 @@ name: YemenVision-MTMC CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  test-research-and-backend:
+  quality:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: python -m compileall -q src tests
+      - run: pytest -q
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pytest pyyaml numpy pandas scipy pillow pydantic fastapi httpx sqlalchemy
-        if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-
-    - name: Run research tests
-      run: |
-        pytest research/ -v
-
-    - name: Run backend tests
-      env:
-        PYTHONPATH: backend
-        API_KEYS_JSON: '{"admin":{"subject":"ci-tester","roles":["admin"]}}'
-      run: |
-        pytest backend/tests/ -v
+  legacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pytest pyyaml numpy pandas scipy pillow pydantic fastapi httpx sqlalchemy
+      - run: pytest research/ -q
+      - run: PYTHONPATH=backend pytest backend/tests/ -q

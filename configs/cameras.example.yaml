@@ -1,0 +1,11 @@
+cameras:
+  cam01:
+    source: /path/to/cam01.mp4
+    neighbors: [cam02]
+    transitions:
+      cam02: {min_seconds: 5, max_seconds: 600}
+  cam02:
+    source: /path/to/cam02.mp4
+    neighbors: [cam01]
+    transitions:
+      cam01: {min_seconds: 5, max_seconds: 600}

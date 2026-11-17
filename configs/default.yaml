@@ -1,0 +1,29 @@
+models_dir: models
+output_dir: outputs/runs
+seed: 42
+privacy:
+  blur_plates: true
+  keep_raw: false
+detection:
+  confidence: 0.25
+  iou: 0.45
+  imgsz: 640
+  device: auto
+  amp: true
+tracking:
+  track_high_thresh: 0.25
+  track_low_thresh: 0.1
+  new_track_thresh: 0.25
+  track_buffer: 50
+  match_thresh: 0.8
+reid:
+  batch_size: 32
+  crop_count: 8
+  flip_tta: true
+  cache_dir: outputs/cache
+association:
+  appearance_weight: 0.8
+  spatiotemporal_weight: 0.2
+  threshold: 0.5
+  min_transition_seconds: 0
+  max_transition_seconds: 3600
