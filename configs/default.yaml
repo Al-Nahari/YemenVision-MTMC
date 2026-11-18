@@ -5,15 +5,15 @@ privacy:
   blur_plates: true
   keep_raw: false
 detection:
-  confidence: 0.25
-  iou: 0.45
-  imgsz: 640
+  confidence: 0.55
+  iou: 0.6
+  imgsz: 800
   device: auto
   amp: true
 tracking:
-  track_high_thresh: 0.25
+  track_high_thresh: 0.55
   track_low_thresh: 0.1
-  new_track_thresh: 0.25
+  new_track_thresh: 0.55
   track_buffer: 50
   match_thresh: 0.8
 reid:

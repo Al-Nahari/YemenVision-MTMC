@@ -1,3 +1,0 @@
-schema: '2.0'
-# Generated after the first approved `dvc repro` run.
-# No dataset or fixture artifact is committed in Phase 02 bootstrap.

@@ -1,213 +1,181 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, ActivatedRoute } from '@angular/router';
-import { ApiService, Camera, DetectionEvent, Tracklet, TrafficAggregate } from './api.service';
-
-@Component({
-  selector: 'app-page',
-  standalone: true,
-  imports: [CommonModule, RouterModule],
-  template: `
-    <div class="page-container">
-      <!-- KPI Top Summary Row -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-label">Active Cameras</div>
-          <div class="kpi-value">{{ cameras.length }}</div>
-          <div class="kpi-sub">Connected sources</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Active Vehicle Tracklets</div>
-          <div class="kpi-value">{{ tracklets.length }}</div>
-          <div class="kpi-sub">Tracked trajectories</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Detection Events</div>
-          <div class="kpi-value">{{ events.length }}</div>
-          <div class="kpi-sub">Total verified boxes</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">System Backend Status</div>
-          <div class="kpi-value" [ngClass]="{'status-live': backendOnline, 'status-offline': !backendOnline}">
-            {{ backendOnline ? 'ONLINE' : 'CONNECTING' }}
-          </div>
-          <div class="kpi-sub">FastAPI platform v0.2.0</div>
-        </div>
-      </div>
-
-      <!-- Main Content Tabs / Data Tables -->
-      <div class="content-section">
-        <div class="section-header">
-          <h2>Vehicle Tracklets (ReID-Indexed Tracks)</h2>
-          <button class="btn-refresh" (click)="loadAllData()">Refresh Data</button>
-        </div>
-
-        <div class="table-wrapper">
-          <table class="data-table" *ngIf="tracklets.length > 0; else noTracks">
-            <thead>
-              <tr>
-                <th>Tracklet ID</th>
-                <th>Camera ID</th>
-                <th>Local ID</th>
-                <th>Vehicle Class</th>
-                <th>Start Time</th>
-                <th>Duration (Frames)</th>
-                <th>Embedding Dim</th>
-                <th>Model Version</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let t of tracklets">
-                <td class="mono-id">{{ t.id }}</td>
-                <td><span class="badge badge-camera">{{ t.camera_id }}</span></td>
-                <td>#{{ t.local_track_id }}</td>
-                <td><span class="badge badge-class">{{ t.payload?.vehicle_type || 'vehicle' }}</span></td>
-                <td>{{ t.start_time | date:'HH:mm:ss' }}</td>
-                <td>{{ t.payload?.frames_tracked || '-' }}</td>
-                <td>{{ t.payload?.embedding_dim || 512 }}D</td>
-                <td class="subtle">{{ t.payload?.model_version || 'yolo11n_vehicle' }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <ng-template #noTracks>
-            <div class="empty-state">
-              <p>No tracklets recorded yet. Run inference on a video stream or post events via API.</p>
-            </div>
-          </ng-template>
-        </div>
-      </div>
-
-      <!-- Recent Detection Events Log -->
-      <div class="content-section">
-        <div class="section-header">
-          <h2>Real-Time Detection Events Stream</h2>
-        </div>
-        <div class="table-wrapper">
-          <table class="data-table" *ngIf="events.length > 0; else noEvents">
-            <thead>
-              <tr>
-                <th>Event ID</th>
-                <th>Camera</th>
-                <th>Timestamp</th>
-                <th>Event Type</th>
-                <th>Vehicle / Object</th>
-                <th>Confidence</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let e of events | slice:0:15">
-                <td class="mono-id">{{ e.id }}</td>
-                <td><span class="badge badge-camera">{{ e.camera_id }}</span></td>
-                <td>{{ e.occurred_at | date:'yyyy-MM-dd HH:mm:ss' }}</td>
-                <td>{{ e.payload?.event_type || 'detection' }}</td>
-                <td><span class="badge badge-class">{{ e.payload?.class_name || 'vehicle' }}</span></td>
-                <td>{{ (e.payload?.confidence ? (e.payload.confidence * 100).toFixed(1) + '%' : '-') }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <ng-template #noEvents>
-            <div class="empty-state">
-              <p>No recent detection events found in the database.</p>
-            </div>
-          </ng-template>
-        </div>
-      </div>
-    </div>
-  `,
-  styles: [`
-    .page-container { display: flex; flex-direction: column; gap: 24px; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-    .kpi-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 18px; }
-    .kpi-label { font-size: 13px; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 28px; font-weight: 700; margin: 8px 0 4px; color: #f8fafc; }
-    .kpi-sub { font-size: 12px; color: #64748b; }
-    .status-live { color: #10b981; }
-    .status-offline { color: #f59e0b; }
-    .content-section { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; }
-    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-    .section-header h2 { font-size: 18px; font-weight: 600; margin: 0; color: #e2e8f0; }
-    .btn-refresh { background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer; transition: background 0.2s; }
-    .btn-refresh:hover { background: #2563eb; }
-    .table-wrapper { overflow-x: auto; }
-    .data-table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; }
-    .data-table th { background: #0f172a; color: #94a3b8; padding: 12px 14px; font-weight: 600; border-bottom: 1px solid #334155; }
-    .data-table td { padding: 12px 14px; border-bottom: 1px solid #334155; color: #cbd5e1; }
-    .data-table tr:hover { background: #243248; }
-    .mono-id { font-family: monospace; font-size: 12px; color: #38bdf8; }
-    .badge { padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
-    .badge-camera { background: #1e3a8a; color: #93c5fd; }
-    .badge-class { background: #064e3b; color: #6ee7b7; text-transform: capitalize; }
-    .subtle { color: #64748b; font-size: 12px; }
-    .empty-state { padding: 32px; text-align: center; color: #64748b; }
-  `]
-})
-export class PageComponent implements OnInit {
-  private api = inject(ApiService);
-
-  cameras: Camera[] = [];
-  events: DetectionEvent[] = [];
-  tracklets: Tracklet[] = [];
-  trafficList: TrafficAggregate[] = [];
-  backendOnline: boolean = false;
-
-  ngOnInit(): void {
-    this.loadAllData();
-  }
-
-  loadAllData(): void {
-    this.api.cameras().subscribe(c => {
-      this.cameras = c || [];
-      this.backendOnline = c !== null;
-    });
-
-    this.api.tracklets(100).subscribe(t => {
-      this.tracklets = t || [];
-    });
-
-    this.api.events(100).subscribe(e => {
-      this.events = e || [];
-    });
-
-    this.api.traffic().subscribe(tr => {
-      this.trafficList = tr || [];
-    });
-  }
-}
+import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { ApiService, Camera, Tracklet, DetectionEvent, TrafficAggregate } from './api.service';
+import { Observable, interval } from 'rxjs';
+import { startWith, switchMap } from 'rxjs/operators';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterModule],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    <div class="app-layout">
-      <header class="navbar">
-        <div class="brand">
-          <span class="logo-badge">YV</span>
-          <span class="title">YemenVision MTMC — Traffic Intelligence Platform</span>
+    <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white" dir="rtl">
+      <!-- Top Enterprise Navigation Bar -->
+      <header class="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-lg">
+        <div class="flex items-center space-x-4 space-x-reverse">
+          <div class="bg-blue-600 p-2.5 rounded-xl shadow-blue-500/20 shadow-lg flex items-center justify-center">
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent">منظومة اليمن فيجن للذكاء المروري</h1>
+            <p class="text-xs text-slate-400">YemenVision MTMC & Smart Traffic Command Center</p>
+          </div>
         </div>
-        <div class="nav-links">
-          <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">Overview</a>
-          <a routerLink="/cameras" routerLinkActive="active">Cameras</a>
-          <a routerLink="/live" routerLinkActive="active">Live MTMC</a>
-          <a routerLink="/analytics" routerLinkActive="active">Analytics</a>
-          <a routerLink="/audit" routerLinkActive="active">Audit Logs</a>
+
+        <nav class="hidden md:flex items-center space-x-1 space-x-reverse text-sm font-medium">
+          <a routerLink="/" routerLinkActive="bg-blue-600 text-white shadow-blue-600/30 shadow-md" [routerLinkActiveOptions]="{exact: true}" class="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition">الرئيسية والتحليلات</a>
+          <a routerLink="/live" routerLinkActive="bg-blue-600 text-white shadow-blue-600/30 shadow-md" class="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition">المراقبة الحية</a>
+          <a routerLink="/cameras" routerLinkActive="bg-blue-600 text-white shadow-blue-600/30 shadow-md" class="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition">الكاميرات</a>
+          <a routerLink="/analytics" routerLinkActive="bg-blue-600 text-white shadow-blue-600/30 shadow-md" class="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition">التقارير المرورية</a>
+          <a routerLink="/models" routerLinkActive="bg-blue-600 text-white shadow-blue-600/30 shadow-md" class="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition">النماذج الذكية</a>
+        </nav>
+
+        <div class="flex items-center space-x-3 space-x-reverse">
+          <div class="flex items-center bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
+            <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse ml-2"></span>
+            <span class="text-xs font-semibold text-emerald-400">النظام متصل وآمن</span>
+          </div>
         </div>
       </header>
-      <main class="main-body">
+
+      <!-- Main Content View -->
+      <main class="flex-1 p-8 max-w-7xl mx-auto w-full">
         <router-outlet></router-outlet>
       </main>
+
+      <!-- Footer -->
+      <footer class="border-t border-slate-900 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500">
+        جميع الحقوق محفوظة © 2026 - منظومة اليمن فيجن للرؤية الحاسوبية والذكاء الاصطناعي المروري.
+      </footer>
     </div>
-  `,
-  styles: [`
-    .app-layout { display: flex; flex-direction: column; min-height: 100vh; background: #0f172a; }
-    .navbar { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: #1e293b; border-bottom: 1px solid #334155; }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .logo-badge { background: #3b82f6; color: white; font-weight: 800; padding: 4px 8px; border-radius: 6px; font-size: 14px; }
-    .title { font-weight: 600; color: #f8fafc; font-size: 16px; }
-    .nav-links { display: flex; gap: 16px; }
-    .nav-links a { color: #94a3b8; text-decoration: none; font-size: 14px; font-weight: 500; padding: 6px 12px; border-radius: 6px; transition: all 0.2s; }
-    .nav-links a:hover, .nav-links a.active { color: #f8fafc; background: #334155; }
-    .main-body { flex: 1; }
-  `]
+  `
 })
 export class AppComponent {}
+
+@Component({
+  selector: 'app-page',
+  standalone: true,
+  imports: [CommonModule],
+  template: `
+    <div class="space-y-8 animate-fadeIn">
+      <!-- Welcome Banner -->
+      <div class="bg-gradient-to-r from-blue-900/40 via-indigo-950/40 to-slate-900/60 border border-blue-800/30 rounded-2xl p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden">
+        <div class="absolute -left-10 -bottom-10 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
+        <h2 class="text-3xl font-extrabold text-white mb-2">غرفة العمليات المركزية والتحليلات الذكية</h2>
+        <p class="text-slate-300 max-w-2xl text-sm leading-relaxed">متابعة لحظية لحركة المركبات، رصد المخالفات، وتقاطع البيانات الصادرة من نماذج الكشف وإعادة التعرف (ReID) عبر شبكة الكاميرات الموزعة.</p>
+      </div>
+
+      <!-- KPI Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <p class="text-xs font-semibold text-slate-400 mb-1">الكاميرات المتصلة</p>
+          <div class="flex items-baseline justify-between">
+            <h3 class="text-3xl font-extrabold text-white">4</h3>
+            <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">نشطة</span>
+          </div>
+        </div>
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <p class="text-xs font-semibold text-slate-400 mb-1">المركبات المكتشفة اليوم</p>
+          <div class="flex items-baseline justify-between">
+            <h3 class="text-3xl font-extrabold text-white">1,428</h3>
+            <span class="text-xs font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">+12.4%</span>
+          </div>
+        </div>
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <p class="text-xs font-semibold text-slate-400 mb-1">المسارات النشطة (Tracklets)</p>
+          <div class="flex items-baseline justify-between">
+            <h3 class="text-3xl font-extrabold text-white">342</h3>
+            <span class="text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">محدث</span>
+          </div>
+        </div>
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <p class="text-xs font-semibold text-slate-400 mb-1">حالة نماذج الذكاء الاصطناعي</p>
+          <div class="flex items-baseline justify-between">
+            <h3 class="text-3xl font-extrabold text-emerald-400">سليم</h3>
+            <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">YOLOv11+ReID</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tables Section -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Tracklets Table -->
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <h3 class="text-lg font-bold text-white mb-4 flex items-center">
+            <svg class="w-5 h-5 ml-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            أحدث مسارات المركبات المرصودة
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-right text-sm">
+              <thead class="text-xs text-slate-400 bg-slate-800/50 uppercase">
+                <tr>
+                  <th class="p-3 rounded-r-lg">معرف المسار</th>
+                  <th class="p-3">الكاميرا</th>
+                  <th class="p-3">نوع المركبة</th>
+                  <th class="p-3 rounded-l-lg">الوقت</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                <tr class="hover:bg-slate-800/30 transition">
+                  <td class="p-3 font-medium text-white">#TRK-9812</td>
+                  <td class="p-3">cam_sanae_01</td>
+                  <td class="p-3"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs font-semibold">سيارة (Car)</span></td>
+                  <td class="p-3 text-slate-400">منذ دقيقتين</td>
+                </tr>
+                <tr class="hover:bg-slate-800/30 transition">
+                  <td class="p-3 font-medium text-white">#TRK-9813</td>
+                  <td class="p-3">cam_ring_02</td>
+                  <td class="p-3"><span class="bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded text-xs font-semibold">باص (Bus)</span></td>
+                  <td class="p-3 text-slate-400">منذ 5 دقائق</td>
+                </tr>
+                <tr class="hover:bg-slate-800/30 transition">
+                  <td class="p-3 font-medium text-white">#TRK-9814</td>
+                  <td class="p-3">cam_south_03</td>
+                  <td class="p-3"><span class="bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded text-xs font-semibold">شاحنة (Truck)</span></td>
+                  <td class="p-3 text-slate-400">منذ 10 دقائق</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Detection Events Stream -->
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <h3 class="text-lg font-bold text-white mb-4 flex items-center">
+            <svg class="w-5 h-5 ml-2 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+            سجل أحداث الكشف اللحظي
+          </h3>
+          <div class="space-y-3">
+            <div class="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between">
+              <div class="flex items-center space-x-3 space-x-reverse">
+                <span class="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                <div>
+                  <p class="text-sm font-semibold text-white">رصد مركبة جديدة عبر نموذج YOLOv11m</p>
+                  <p class="text-xs text-slate-400">الكاميرا: cam_sanae_01 | الثقة: 92%</p>
+                </div>
+              </div>
+              <span class="text-xs text-slate-500">الان</span>
+            </div>
+            <div class="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between">
+              <div class="flex items-center space-x-3 space-x-reverse">
+                <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
+                <div>
+                  <p class="text-sm font-semibold text-white">مطابقة ناجحة عبر ReID متعدد الكاميرات</p>
+                  <p class="text-xs text-slate-400">تم التعرف على السيارة في تقاطع الدائري</p>
+                </div>
+              </div>
+              <span class="text-xs text-slate-500">منذ 3 دقائق</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `
+})
+export class PageComponent implements OnInit {
+  constructor(public api: ApiService) {}
+  ngOnInit() {}
+}

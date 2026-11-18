@@ -1,0 +1,29 @@
+{
+  "imgsz": 800,
+  "tta": true,
+  "conf": 0.55,
+  "iou": 0.6,
+  "names": [
+    "ambulance",
+    "army vehicle",
+    "auto rickshaw",
+    "bicycle",
+    "bus",
+    "car",
+    "garbagevan",
+    "human hauler",
+    "minibus",
+    "minivan",
+    "motorbike",
+    "pickup",
+    "policecar",
+    "rickshaw",
+    "scooter",
+    "suv",
+    "taxi",
+    "three wheelers -CNG-",
+    "truck",
+    "van",
+    "wheelbarrow"
+  ]
+}

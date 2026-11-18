@@ -13,42 +13,82 @@ class ReIDModelSpec:
     embedding_dim: int = 2048
 
 class ReIDEncoder:
-    """Exact BoT inference shape: ResNet feature map -> pool -> BNNeck -> L2."""
+    """Exact BoT inference shape: ResNet feature map -> pool -> BNNeck -> L2.
+
+    Uses ReIDNetV2 architecture (with GeM/AvgPool and BNNeck) to match the
+    trained checkpoint structure from yemenvision_loaders.py.
+    """
     def __init__(self, checkpoint: str | Path, device: str = "auto", flip_tta: bool = True) -> None:
         try:
             import torch
-            from torch import nn
+            import torch.nn as nn
+            import torch.nn.functional as F
             from torchvision import models, transforms
         except ImportError as exc:
             raise RuntimeError("ReID requires torch and torchvision; install yemenvision-mtmc[reid]") from exc
         self.torch = torch
+        self._F = F
         self.device = self._resolve_device(device)
         ckpt = torch.load(Path(checkpoint), map_location="cpu", weights_only=False)
         cfg = ckpt.get("cfg")
         state = ckpt.get("state_dict")
         if not isinstance(cfg, dict) or not isinstance(state, dict):
             raise ValueError("ReID checkpoint must contain cfg and state_dict")
-        if cfg.get("backbone") != "resnet50" or tuple(cfg.get("size", ())) != (224, 224):
-            raise ValueError("ReID checkpoint cfg must be resnet50 with size (224, 224)")
+
+        backbone_name = cfg.get("backbone", "resnet50")
+        size = tuple(cfg.get("size", (224, 224)))
+        n_cls = int(cfg.get("n_cls", 2))
+        last_stride = int(cfg.get("last_stride", 2))
+        pool_type = cfg.get("pool", "avg")
+
+        if backbone_name != "resnet50":
+            raise ValueError(f"ReID checkpoint backbone must be resnet50, got {backbone_name}")
+        if size != (224, 224):
+            raise ValueError(f"ReID checkpoint size must be (224, 224), got {size}")
+
+        # Build the same ReIDNetV2 architecture used during training
+        class GeM(nn.Module):
+            def __init__(self, p=3.0, eps=1e-6):
+                super().__init__()
+                self.p = nn.Parameter(torch.ones(1) * p)
+                self.eps = eps
+            def forward(self, x):
+                return F.avg_pool2d(
+                    x.clamp(min=self.eps).pow(self.p),
+                    (x.size(-2), x.size(-1))
+                ).pow(1.0 / self.p).flatten(1)
+
         base = models.resnet50(weights=None)
+        if last_stride == 1:
+            blk = base.layer4[0]
+            if hasattr(blk, 'conv3'):
+                blk.conv2.stride = (1, 1)
+            else:
+                blk.conv1.stride = (1, 1)
+            blk.downsample[0].stride = (1, 1)
+
+        dim = base.fc.in_features  # 2048
+        self.embedding_dim = dim
+
         self.model = nn.Module()
-        self.model.backbone = nn.Sequential(*list(base.children())[:-2])
-        self.model.pool = nn.AdaptiveAvgPool2d(1)
-        self.embedding_dim = int(cfg.get("embedding_dim", 2048))
-        if self.embedding_dim != 2048:
-            raise ValueError("This checkpoint contract requires a 2048-dimensional ResNet50 feature")
-        self.model.bn = nn.BatchNorm1d(self.embedding_dim)
-        self.model.classifier = nn.Linear(self.embedding_dim, int(cfg.get("n_cls", 576)))
+        self.model.backbone = nn.Sequential(
+            base.conv1, base.bn1, base.relu, base.maxpool,
+            base.layer1, base.layer2, base.layer3, base.layer4,
+        )
+        self.model.pool = GeM() if pool_type == "gem" else nn.AdaptiveAvgPool2d(1)
+        self.model.bn = nn.BatchNorm1d(dim)
+        self.model.bn.bias.requires_grad_(False)
+        self.model.classifier = nn.Linear(dim, n_cls, bias=False)
+
         required = {"backbone.", "bn."}
         if not all(any(k.startswith(prefix) for k in state) for prefix in required):
             raise ValueError("ReID checkpoint lacks required backbone or BNNeck keys; partial loading refused")
         missing, unexpected = self.model.load_state_dict(state, strict=False)
-        forbidden_missing = [k for k in missing if k.startswith(("backbone.", "bn."))]
-        if forbidden_missing or unexpected:
-            raise ValueError(f"invalid ReID checkpoint keys: missing={forbidden_missing}, unexpected={unexpected}")
+        forbidden_missing = [k for k in missing if k.startswith(("backbone.", "bn.", "pool."))]
+        if forbidden_missing:
+            raise ValueError(f"invalid ReID checkpoint keys: missing={forbidden_missing}")
         self.model.to(self.device).eval()
         self.flip_tta = flip_tta
-        size = tuple(cfg.get("size", (224, 224)))
         self.transform = transforms.Compose([
             transforms.ToPILImage(), transforms.Resize(size), transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
@@ -70,14 +110,16 @@ class ReIDEncoder:
                 tensors = self.torch.stack([self.transform(c) for c in batch_crops]).to(self.device)
                 if self.flip_tta:
                     tensors = self._forward(tensors) + self._forward(self.torch.flip(tensors, dims=[3]))
-                    vectors = self.torch.nn.functional.normalize(tensors, dim=1)
+                    vectors = self._F.normalize(tensors, dim=1)
                 else:
-                    vectors = self.torch.nn.functional.normalize(self._forward(tensors), dim=1)
+                    vectors = self._F.normalize(self._forward(tensors), dim=1)
                 outputs.append(vectors.detach().float().cpu().numpy())
         return np.concatenate(outputs, axis=0)
 
     def _forward(self, tensors: Any) -> Any:
-        features = self.model.pool(self.model.backbone(tensors)).flatten(1)
+        features = self.model.pool(self.model.backbone(tensors))
+        if features.dim() > 2:
+            features = features.flatten(1)
         return self.model.bn(features)
 
 class _nullcontext:

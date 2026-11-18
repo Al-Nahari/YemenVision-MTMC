@@ -1,3 +1,19 @@
 {
-  "models": {}
+  "models": {
+    "detector_best.pt": {
+      "sha256": "8166b81826e181ad84d930ac38e80e90d81ce5c1580003d93c79d9d142a38b8a",
+      "kind": "detector",
+      "from": "/content/drive/MyDrive/YemenVision_MTMC/stage5/20261118T125424Z/detector/y11m_coco/best.pt"
+    },
+    "reid_best.pt": {
+      "sha256": "3cd6b60e6799e97711198b0cc7193d1d47757f3850c6abf6e0d0bc2fe60e62ee",
+      "kind": "reid",
+      "from": "/content/drive/MyDrive/YemenVision_MTMC/stage5/20261118T125424Z/reid_v2_final.pt"
+    },
+    "vehicle_attributes.pt": {
+      "sha256": "ed6dc9f5415ac592a14615a7f4f3c731d8e86003beafe3ba3cf5ef1f23ed90ee",
+      "kind": "reid_attribute",
+      "from": "/content/drive/MyDrive/YemenVision_MTMC/stage5/20261118T125424Z/vehicle_attributes_v2.pt"
+    }
+  }
 }

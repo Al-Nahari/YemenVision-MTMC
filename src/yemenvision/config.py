@@ -28,9 +28,9 @@ class PrivacyConfig:
 
 @dataclass(frozen=True)
 class DetectionConfig:
-    confidence: float = 0.25
-    iou: float = 0.45
-    imgsz: int = 640
+    confidence: float = 0.55
+    iou: float = 0.6
+    imgsz: int = 800
     device: str = "auto"
     amp: bool = True
 

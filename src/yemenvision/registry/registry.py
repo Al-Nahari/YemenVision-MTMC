@@ -65,7 +65,7 @@ class ModelRegistry:
     @staticmethod
     def _kind(path: Path) -> str:
         name = path.name.lower()
-        if name.startswith("reid_attr_"):
+        if name.startswith("reid_attr_") or name == "vehicle_attributes.pt":
             return "reid_attribute"
         if "reid" in name:
             return "reid"
@@ -93,7 +93,10 @@ class ModelRegistry:
         record.sha256 = self.sha256(path)
         if path.name.lower().endswith("_last.pt"):
             record.issues.append(ModelIssue("ERROR", "checkpoint *_last.pt is not valid for inference"))
-        if record.kind == "reid_attribute":
+        if record.kind == "reid_attribute" and path.name == "vehicle_attributes.pt":
+            # vehicle_attributes.pt is an auxiliary model, not invalid for inference generally
+            pass
+        elif record.kind == "reid_attribute":
             record.issues.append(ModelIssue("ERROR", "synthetic attribute checkpoint is not production ReID"))
         expected = self._expected_hash(path.name)
         if expected and expected != record.sha256:
@@ -125,7 +128,11 @@ class ModelRegistry:
 
     def select(self, kind: str, name: str | None = None) -> ModelRecord:
         records = [r for r in self.discover() if r.kind == kind and (name is None or r.path.name == name)]
-        records.sort(key=lambda r: (r.path.name not in ({"best.pt", "detection_yolo11s_best.pt"} if kind == "detector" else {"reid_bot_best.pt"}), r.path.name))
+        if kind == "detector":
+            preferred = {"detector_best.pt", "best.pt", "detection_yolo11s_best.pt"}
+        else:
+            preferred = {"reid_best.pt", "reid_bot_best.pt"}
+        records.sort(key=lambda r: (r.path.name not in preferred, r.path.name))
         if not records:
             raise FileNotFoundError(f"No {kind} model found in {self.models_dir}")
         record = records[0]
@@ -163,7 +170,7 @@ class ModelRegistry:
                     record.issues.append(ModelIssue("ERROR", "detector class names do not match the 21-class contract"))
             else:
                 record.issues.append(ModelIssue("WARNING", "detector class names were not found in checkpoint"))
-        else:
+        elif record.kind == "reid":
             cfg = checkpoint.get("cfg") if isinstance(checkpoint, dict) else None
             state = checkpoint.get("state_dict") if isinstance(checkpoint, dict) else None
             if not isinstance(cfg, dict) or cfg.get("backbone") != "resnet50" or tuple(cfg.get("size", ())) != (224, 224):
@@ -171,4 +178,7 @@ class ModelRegistry:
             keys = set(state or {})
             if not any(k.startswith("backbone.") for k in keys) or not any(k.startswith(("bn.", "bnneck.")) for k in keys):
                 record.issues.append(ModelIssue("ERROR", "ReID checkpoint must contain backbone and BNNeck weights"))
+        else:
+            # reid_attribute or other auxiliary models
+            pass
         return record

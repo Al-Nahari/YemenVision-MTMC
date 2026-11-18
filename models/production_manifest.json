@@ -1,0 +1,18 @@
+{
+  "run_id": "20261118T125424Z",
+  "promoted": {
+    "detector_best.pt": {
+      "sha256": "8166b81826e181ad84d930ac38e80e90d81ce5c1580003d93c79d9d142a38b8a",
+      "from": "/content/drive/MyDrive/YemenVision_MTMC/stage5/20261118T125424Z/detector/y11m_coco/best.pt"
+    },
+    "reid_best.pt": {
+      "sha256": "956b55a30585f89859d02524e44b7f73bd53362f871f0b098f0badf1fd756c18",
+      "from": "/content/drive/MyDrive/YemenVision_MTMC/stage5/20261118T125424Z/reid_v2_final.pt"
+    },
+    "vehicle_attributes.pt": {
+      "sha256": "ed6dc9f5415ac592a14615a7f4f3c731d8e86003beafe3ba3cf5ef1f23ed90ee",
+      "from": "/content/drive/MyDrive/YemenVision_MTMC/stage5/20261118T125424Z/vehicle_attributes_v2.pt"
+    }
+  },
+  "time_utc": "2026-11-18T17:31:54.835923+00:00"
+}
