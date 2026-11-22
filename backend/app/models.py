@@ -3,7 +3,7 @@ from sqlalchemy import String,DateTime,Float,JSON,Index,UniqueConstraint
 from sqlalchemy.orm import Mapped,mapped_column
 from .database import Base
 class Camera(Base):
- __tablename__='cameras'; id:Mapped[str]=mapped_column(String,primary_key=True); zone:Mapped[str|None]=mapped_column(String); direction:Mapped[str|None]=mapped_column(String); active:Mapped[bool]=mapped_column(default=True)
+ __tablename__='cameras'; id:Mapped[str]=mapped_column(String,primary_key=True); zone:Mapped[str|None]=mapped_column(String); direction:Mapped[str|None]=mapped_column(String); active:Mapped[bool]=mapped_column(default=True); stream_url:Mapped[str|None]=mapped_column(String, nullable=True)
 class DetectionEvent(Base):
  __tablename__='detection_events'; id:Mapped[str]=mapped_column(String,primary_key=True); camera_id:Mapped[str]=mapped_column(String,index=True); occurred_at:Mapped[datetime]=mapped_column(DateTime,index=True); payload:Mapped[dict]=mapped_column(JSON); __table_args__=(Index('ix_detection_camera_time','camera_id','occurred_at'),)
 class Tracklet(Base):

@@ -9,7 +9,10 @@ export interface Camera {
   zone?: string;
   direction?: string;
   active: boolean;
+  stream_url?: string | null;
 }
+
+export interface CameraInput extends Camera {}
 
 export interface DetectionEvent {
   id: string;
@@ -31,6 +34,8 @@ export interface Tracklet {
     embedding_dim?: number;
     frames_tracked?: number;
     model_version?: string;
+    reid_matched?: boolean;
+    confidence?: number;
   };
 }
 
@@ -52,14 +57,17 @@ export interface AuditRecord {
 }
 
 export const apiKeyInterceptor: HttpInterceptorFn = (req, next) => {
-  const key = localStorage.getItem('yv_api_key') || 'admin';
-  return next(req.clone({ setHeaders: { 'X-API-Key': key } }));
+  // SSR has no localStorage; configure a key in the browser before making API calls.
+  const key = typeof localStorage === 'undefined' ? null : localStorage.getItem('yv_api_key');
+  return next(key ? req.clone({ setHeaders: { 'X-API-Key': key } }) : req);
 };
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private http = inject(HttpClient);
-  readonly base = localStorage.getItem('yv_api_url') || 'http://localhost:8000/api/v1';
+  readonly base = typeof localStorage === 'undefined'
+    ? 'http://localhost:8000/api/v1'
+    : localStorage.getItem('yv_api_url') || 'http://localhost:8000/api/v1';
 
   cameras(): Observable<Camera[] | null> {
     return this.http.get<Camera[]>(`${this.base}/cameras`).pipe(catchError(() => of(null)));
@@ -81,12 +89,47 @@ export class ApiService {
     return this.http.get<AuditRecord[]>(`${this.base}/audit`).pipe(catchError(() => of(null)));
   }
 
-  triggerInference(videoPath: string, cameraId: string): Observable<any> {
-    return this.http.post(`${this.base}/inference/video`, {
-      video_path: videoPath,
+  createCamera(camera: CameraInput): Observable<Camera> {
+    return this.http.post<Camera>(`${this.base}/cameras`, camera);
+  }
+
+  mediaUrl(path: string): string {
+    const apiRoot = this.base.replace(/\/api\/v1\/?$/, '');
+    return new URL(path, `${apiRoot}/`).toString();
+  }
+
+  triggerInference(file: File, cameraId: string): Observable<any> {
+    const uploadUrl = `${this.base}/inference/upload?camera_id=${encodeURIComponent(cameraId)}`;
+    return new Observable(observer => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+      const key = typeof localStorage === 'undefined' ? null : localStorage.getItem('yv_api_key');
+      if (key) xhr.setRequestHeader('X-API-Key', key);
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable) observer.next({ uploadProgress: Math.round(event.loaded * 100 / event.total) });
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { observer.next(JSON.parse(xhr.responseText)); observer.complete(); }
+          catch (error) { observer.error(error); }
+        } else {
+          observer.error({ status: xhr.status, error: (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })() });
+        }
+      };
+      xhr.onerror = () => observer.error({ status: 0 });
+      xhr.onabort = () => observer.error({ status: 0, aborted: true });
+      xhr.send(file);
+      return () => xhr.abort();
+    });
+  }
+
+  sendLiveFrame(cameraId: string, frameIndex: number, detections: any[]): Observable<any> {
+    return this.http.post(`${this.base}/inference/frame`, {
       camera_id: cameraId,
-      conf_threshold: 0.25,
-      iou_threshold: 0.3
+      frame_index: frameIndex,
+      detections: detections
     });
   }
 }

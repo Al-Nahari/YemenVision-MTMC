@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 os.environ['DATABASE_URL'] = f"sqlite:///./test_{uuid4().hex[:8]}.db"
 os.environ['API_KEYS_JSON'] = '{"admin":{"subject":"tester","roles":["admin"]}}'
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.main import app
 from app.database import Base, engine
 

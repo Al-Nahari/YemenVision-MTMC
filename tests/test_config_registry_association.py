@@ -12,7 +12,7 @@ def test_config_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("YV_MODELS_DIR", str(tmp_path / "weights"))
     settings = load_settings("configs/default.yaml")
     assert settings.models_dir == (tmp_path / "weights")
-    assert settings.detection.imgsz == 640
+    assert settings.detection.imgsz == 800
 
 
 def test_registry_rejects_invalid_names_without_torch(tmp_path):

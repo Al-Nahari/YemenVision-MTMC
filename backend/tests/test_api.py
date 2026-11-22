@@ -2,6 +2,9 @@ import os
 os.environ['DATABASE_URL']='sqlite:///./test_platform.db'
 os.environ['API_KEYS_JSON']='{"admin":{"subject":"tester","roles":["admin"]}}'
 from fastapi.testclient import TestClient
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.main import app
 def test_auth_and_idempotent_events():
  with TestClient(app) as c:

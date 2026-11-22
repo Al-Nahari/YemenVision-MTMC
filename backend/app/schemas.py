@@ -1,12 +1,20 @@
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class CameraIn(BaseModel):
     id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')
     zone: Optional[str] = None
     direction: Optional[str] = None
     active: bool = True
+    stream_url: Optional[str] = Field(default=None, max_length=2048)
+
+    @field_validator('stream_url')
+    @classmethod
+    def validate_stream_url(cls, value):
+        if value and not value.lower().startswith(('rtsp://', 'rtsps://', 'http://', 'https://')):
+            raise ValueError('stream_url must use RTSP, RTSPS, HTTP, or HTTPS')
+        return value
 
 class EventIn(BaseModel):
     id: str = Field(pattern=r'^[A-Za-z0-9_-]{8,128}$')
@@ -54,6 +62,7 @@ class InferenceVideoResponse(BaseModel):
     events_count: int
     duration_seconds: float
     model_version: str
+    video_url: Optional[str] = None
 
 class DetectionItem(BaseModel):
     box: List[float]
