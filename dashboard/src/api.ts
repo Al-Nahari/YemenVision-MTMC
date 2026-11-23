@@ -106,6 +106,18 @@ export interface InferenceResult {
   [key: string]: unknown;
 }
 
+export interface VideoJob {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  progress: number;
+  camera_id: string;
+  original_name: string;
+  result?: InferenceResult | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -264,6 +276,7 @@ export const api = {
       const params = new URLSearchParams({
         camera_id: cameraId,
         max_frames: String(maxFrames),
+        async_processing: 'true',
       });
       xhr.open('POST', `${apiBase()}/inference/upload?${params.toString()}`);
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
@@ -295,7 +308,8 @@ export const api = {
         }
 
         try {
-          resolve(JSON.parse(xhr.responseText) as InferenceResult);
+          const job = JSON.parse(xhr.responseText) as VideoJob;
+          void api.waitForVideoJob(job.id).then(resolve, reject);
         } catch {
           reject(new ApiError(xhr.status, 'استجابة غير صالحة من الخادم'));
         }
@@ -305,5 +319,18 @@ export const api = {
       xhr.onabort = () => reject(new ApiError(0, 'تم إلغاء الرفع'));
       xhr.send(file);
     });
+  },
+
+  async videoJob(jobId: string): Promise<VideoJob> {
+    return request<VideoJob>(`/inference/jobs/${encodeURIComponent(jobId)}`);
+  },
+
+  async waitForVideoJob(jobId: string): Promise<InferenceResult> {
+    for (;;) {
+      const job = await api.videoJob(jobId);
+      if (job.status === 'completed' && job.result) return job.result;
+      if (job.status === 'failed') throw new ApiError(422, job.error || 'فشلت معالجة الفيديو');
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    }
   },
 };

@@ -80,6 +80,18 @@ class InferenceVideoResponse(BaseModel):
     model_version: str
     video_url: str | None = None
 
+
+class VideoJobResponse(BaseModel):
+    id: str
+    status: str
+    progress: int
+    camera_id: str
+    original_name: str
+    result: dict | None = None
+    error: str | None = None
+    created_at: str
+    updated_at: str
+
 class DetectionItem(BaseModel):
     box: list[float]
     confidence: float

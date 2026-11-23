@@ -20,6 +20,7 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine, session
 from app.media import media_url, verify_media_request
 from app.models import AuditLog, Camera, DetectionEvent, ModelVersion, ProcessedVideo, Tracklet, TrafficAggregate
+from app.jobs import video_jobs
 from app.schemas import (
     CameraIn,
     CameraUpdate,
@@ -29,6 +30,7 @@ from app.schemas import (
     InferenceVideoRequest,
     InferenceVideoResponse,
     ModelIn,
+    VideoJobResponse,
 )
 from app.security import rate_limit, require
 from app.services import ModelManager, _annotate, audit, ingest_event, process_live_frame, process_uploaded_video
@@ -420,11 +422,12 @@ def infer_video(
         'Server-path inference is disabled. Upload the video to /api/v1/inference/upload instead.',
     )
 
-@app.post('/api/v1/inference/upload', response_model=InferenceVideoResponse, status_code=200, dependencies=[Depends(rate_limit)])
+@app.post('/api/v1/inference/upload', status_code=200, dependencies=[Depends(rate_limit)])
 async def upload_video(
     request: Request,
     camera_id: str,
     max_frames: int = Query(default=300, ge=1, le=3600),
+    async_processing: bool = Query(default=False, description='Queue the job and return immediately'),
     user=Depends(require('admin', 'operator')),
     db: Session = Depends(session),
 ):
@@ -462,6 +465,27 @@ async def upload_video(
             camera_id=camera_id, video_path=str(temp_path),
             max_frames=max_frames, original_name=original_name,
         )
+        if async_processing:
+            # The worker owns cleanup of the temporary input and its DB session.
+            queued_path = temp_path
+            temp_path = None
+
+            def run_job(_job_id: str) -> dict:
+                worker_db = SessionLocal()
+                output_path = PROCESSED_VIDEO_DIR / f'{uuid4().hex}.webm'
+                try:
+                    result = process_uploaded_video(worker_db, body, user['subject'], output_path)
+                    return result.model_dump(mode='json')
+                except Exception:
+                    output_path.unlink(missing_ok=True)
+                    worker_db.rollback()
+                    raise
+                finally:
+                    worker_db.close()
+                    queued_path.unlink(missing_ok=True)
+
+            job = video_jobs.submit(camera_id, original_name, run_job)
+            return job.public()
         output_path = PROCESSED_VIDEO_DIR / f'{uuid4().hex}.webm'
         try:
             result = process_uploaded_video(db, body, user['subject'], output_path)
@@ -481,6 +505,17 @@ async def upload_video(
     finally:
         if temp_path:
             temp_path.unlink(missing_ok=True)
+
+
+@app.get('/api/v1/inference/jobs/{job_id}', response_model=VideoJobResponse, dependencies=[Depends(rate_limit)])
+def get_inference_job(
+    job_id: str,
+    user=Depends(require('admin', 'operator', 'analyst')),
+):
+    job = video_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, 'Inference job not found')
+    return job.public()
 
 @app.post('/api/v1/inference/frame', response_model=InferenceFrameResponse, status_code=200, dependencies=[Depends(rate_limit)])
 def infer_frame(

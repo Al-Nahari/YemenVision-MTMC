@@ -38,8 +38,8 @@
 
 ### 4. مراحل التنفيذ
 
-1. **المرحلة الحالية:** تقسيم تحميل الواجهة، timeout موحد للـ API، وإعدادات Backend ثابتة.
-2. **المرحلة التالية:** Job model (`queued/running/completed/failed`) مع worker محلي وواجهة progress.
+1. **المرحلة الأولى:** تقسيم تحميل الواجهة، timeout موحد للـ API، وإعدادات Backend ثابتة.
+2. **المرحلة الثانية (منفذة):** Job model (`queued/running/completed/failed`) مع worker محلي واحد وواجهة انتظار progress؛ يبقى المسار المتزامن متاحاً للتوافق.
 3. **مرحلة التوسع:** Redis queue + workers متعددة، PostgreSQL، وMinIO.
 4. **الإنتاج:** FFmpeg/WebRTC للبث، Prometheus metrics، structured logs، health/readiness probes، وCI/CD.
 
