@@ -36,6 +36,8 @@ export default function LivePage() {
   const [streamError, setStreamError] = useState('');
   const [selectedStreamCamera, setSelectedStreamCamera] = useState('');
   const [streamFps, setStreamFps] = useState(5);
+  const [streamMode, setStreamMode] = useState<'mjpeg' | 'hls'>('mjpeg');
+  const [hlsSession, setHlsSession] = useState<{ id: string; token: string } | null>(null);
 
   useEffect(() => {
     if (selectedCamera && cameras.length > 0 && !cameras.some((camera) => camera.id === selectedCamera)) {
@@ -83,7 +85,7 @@ export default function LivePage() {
     }
   };
 
-  const startStream = () => {
+  const startStream = async () => {
     setError('');
     setStreamError('');
     const url = rtspUrl.trim();
@@ -92,14 +94,30 @@ export default function LivePage() {
       return;
     }
     try {
-      setStreamUrl(api.liveStreamUrl(url, selectedStreamCamera || null, streamFps));
+      if (streamMode === 'hls') {
+        const session = await api.startHls(url);
+        const playlist = new URL(api.mediaUrl(session.playlist_url), window.location.origin);
+        const token = new URL(session.playlist_url, window.location.origin).searchParams.get('token') || '';
+        setHlsSession({ id: session.session_id, token });
+        setStreamUrl(playlist.toString());
+      } else {
+        setStreamUrl(api.liveStreamUrl(url, selectedStreamCamera || null, streamFps));
+      }
       setStreaming(true);
-    } catch {
-      setStreamError('تعذّر إنشاء رابط البث. تحقق من تشغيل الخادم.');
+    } catch (err) {
+      setStreamError(err instanceof ApiError ? err.message : 'تعذّر إنشاء رابط البث. تحقق من تشغيل الخادم.');
     }
   };
 
-  const stopStream = () => {
+  const stopStream = async () => {
+    if (hlsSession) {
+      try {
+        await api.stopHls(hlsSession.id, hlsSession.token);
+      } catch {
+        // The session may already have expired; local cleanup is still safe.
+      }
+    }
+    setHlsSession(null);
     setStreaming(false);
     setStreamUrl('');
     setStreamError('');
@@ -341,6 +359,20 @@ export default function LivePage() {
                 className="field w-full text-center"
               />
             </div>
+            <div className="pt-5 md:col-span-1">
+              <label htmlFor="stream-mode" className="text-xs font-semibold text-slate-400">
+                طريقة العرض:
+              </label>
+              <select
+                id="stream-mode"
+                value={streamMode}
+                onChange={(event) => setStreamMode(event.target.value as 'mjpeg' | 'hls')}
+                className="field w-full text-sm text-slate-300"
+              >
+                <option value="mjpeg">MJPEG — أخف على المعالج</option>
+                <option value="hls">HLS — بث مستقر عبر FFmpeg</option>
+              </select>
+            </div>
             <div className="pt-5 md:col-span-1 flex items-end">
               {streaming ? (
                 <button
@@ -370,14 +402,24 @@ export default function LivePage() {
                 <span className="text-xs font-bold text-white">البث يعمل</span>
               </div>
               <div className="bg-black w-full h-full">
-                <img
-                  src={streamUrl}
-                  alt="البث المباشر"
-                  className="w-full h-full object-contain bg-black"
-                  onError={() =>
-                    setStreamError('تعذّر عرض البث. تأكد من أن الرابط صالح والخادم يعمل.')
-                  }
-                />
+                {streamMode === 'hls' ? (
+                  <video
+                    src={streamUrl}
+                    autoPlay
+                    muted
+                    controls
+                    playsInline
+                    className="w-full h-full object-contain bg-black"
+                    onError={() => setStreamError('تعذّر تشغيل HLS. تأكد من تثبيت FFmpeg ودعم المتصفح.')}
+                  />
+                ) : (
+                  <img
+                    src={streamUrl}
+                    alt="البث المباشر"
+                    className="w-full h-full object-contain bg-black"
+                    onError={() => setStreamError('تعذّر عرض البث. تأكد من أن الرابط صالح والخادم يعمل.')}
+                  />
+                )}
               </div>
               {streamError && (
                 <p className="mt-2 text-xs text-rose-400">{streamError}</p>
