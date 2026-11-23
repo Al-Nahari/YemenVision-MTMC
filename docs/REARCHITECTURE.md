@@ -42,7 +42,8 @@
 2. **المرحلة الثانية (منفذة):** Job model (`queued/running/completed/failed`) مع worker محلي واحد وواجهة انتظار progress؛ يبقى المسار المتزامن متاحاً للتوافق.
 3. **المرحلة الثالثة (منفذة جزئياً):** حفظ Jobs في جدول `inference_jobs` وتحديث progress أثناء قراءة الإطارات، مع fallback إلى السجل المحلي عند إعادة تشغيل API.
 4. **المرحلة الرابعة (منفذة):** Queue Redis اختيارية، Worker مستقل، وتهيئة Docker للخدمة؛ الوضع المحلي يبقى fallback عند غياب Redis.
-5. **مرحلة الوسائط:** MinIO/S3، PostgreSQL، وWebRTC/HLS للبث الحي الإنتاجي.
+5. **المرحلة الخامسة (منفذة جزئياً):** Object Storage متوافق مع S3/MinIO كنسخة durable اختيارية، مع fallback محلي وتدفق media signed.
+6. **مرحلة البث الإنتاجي:** WebRTC/HLS كامل مع جلسات FFmpeg ومراقبة اتصال المصدر.
 4. **الإنتاج:** FFmpeg/WebRTC للبث، Prometheus metrics، structured logs، health/readiness probes، وCI/CD.
 
 ## قرار مهم

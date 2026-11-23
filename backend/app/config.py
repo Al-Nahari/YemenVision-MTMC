@@ -63,6 +63,11 @@ class Settings:
     queue_backend: str = os.getenv('YV_QUEUE_BACKEND', 'local').strip().lower()
     redis_url: str = os.getenv('YV_REDIS_URL', 'redis://localhost:6379/0')
     redis_queue_name: str = os.getenv('YV_REDIS_QUEUE', 'yemenvision:video-jobs')
+    object_storage_endpoint: str = os.getenv('OBJECT_STORAGE_ENDPOINT', '').strip()
+    object_storage_bucket: str = os.getenv('OBJECT_STORAGE_BUCKET', 'video-artifacts').strip()
+    object_storage_access_key: str = os.getenv('OBJECT_STORAGE_ACCESS_KEY', '').strip()
+    object_storage_secret_key: str = os.getenv('OBJECT_STORAGE_SECRET_KEY', '').strip()
+    object_storage_region: str = os.getenv('OBJECT_STORAGE_REGION', 'us-east-1').strip()
 
     models_dir: Path = field(default_factory=_default_models_dir)
     trusted_models_only: bool = _env_bool('YV_TRUSTED_MODELS_ONLY', True)

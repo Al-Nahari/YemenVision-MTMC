@@ -14,6 +14,7 @@ from app.config import settings
 from app.media import media_url
 from app.models import AuditLog, DetectionEvent, ProcessedVideo, Tracklet, TrafficAggregate
 from app.plate_reader import engine_status, read_plate
+from app.storage import put_file
 from app.privacy import redact_frame
 from app.schemas import (
     InferenceFrameRequest,
@@ -360,6 +361,9 @@ def process_uploaded_video(
         payload={'total_vehicles': len([key for key in track_ids if key >= 0]), 'video_id': display_video_id},
     ))
     plate_count = len([info for info in track_ids.values() if info.get('plate_text')])
+    # Local disk remains available for immediate playback; S3/MinIO provides
+    # durable retention when configured without changing the response contract.
+    put_file(output_path, f'processed/{output_path.name}')
     db.add(ProcessedVideo(
         id=f'vid_{uuid4().hex[:16]}', file_name=output_path.name,
         original_name=request.original_name or display_video_id, video_id=display_video_id,

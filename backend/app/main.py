@@ -34,6 +34,7 @@ from app.schemas import (
     VideoJobResponse,
 )
 from app.security import rate_limit, require
+from app.storage import stream_file
 from app.services import ModelManager, _annotate, audit, ingest_event, process_live_frame, process_uploaded_video
 
 PROCESSED_VIDEO_DIR = Path(os.getenv('PROCESSED_VIDEO_DIR', 'processed-videos')).resolve()
@@ -149,7 +150,10 @@ def media(name: str, exp: int, sig: str):
         raise HTTPException(403, 'Invalid or expired media signature')
     path = (PROCESSED_VIDEO_DIR / name).resolve()
     if path.parent != PROCESSED_VIDEO_DIR or not path.is_file():
-        raise HTTPException(404, 'Media not found')
+        remote = stream_file(f'processed/{Path(name).name}')
+        if remote is None:
+            raise HTTPException(404, 'Media not found')
+        return StreamingResponse(remote.iter_chunks(), media_type='video/webm', headers={'Cache-Control': 'private, max-age=300'})
     media_type = 'video/webm' if path.suffix.lower() == '.webm' else 'video/mp4'
     return FileResponse(path, media_type=media_type, headers={'Cache-Control': 'private, max-age=300'})
 
