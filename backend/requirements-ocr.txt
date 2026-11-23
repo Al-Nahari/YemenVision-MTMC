@@ -1,0 +1,8 @@
+# Optional CPU plate OCR. Install AFTER requirements.txt with:
+#   pip install --no-deps -r requirements-ocr.txt
+# onnxruntime, numpy, PyYAML, Pillow, and opencv-python-headless are already
+# provided by the main requirements chain. --no-deps avoids pulling the
+# conflicting GUI build of OpenCV.
+rapidocr-onnxruntime>=1.2,<2
+shapely>=1.7.1
+pyclipper>=1.2.1

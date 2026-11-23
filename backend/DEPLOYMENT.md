@@ -4,10 +4,9 @@
    `MEDIA_SIGNING_KEY`, and any non-default model/privacy values.
 2. Create an isolated environment and install `pip install -r requirements.txt`
    plus the project package (`pip install -e ..`). If the environment already
-   uses `opencv-python-headless`, install OCR without pulling the conflicting
-   GUI build: `pip install --no-deps rapidocr-onnxruntime` (its remaining
-   dependencies `onnxruntime`, `shapely`, and `pyclipper` are already in the
-   requirements chain). OCR is optional; the API still works without it.
+   uses `opencv-python-headless`, install optional plate OCR without pulling the
+   conflicting GUI build: `pip install --no-deps -r requirements-ocr.txt`. OCR
+   is optional; the API still works without it and records `ocr_unavailable`.
 3. Start locally with `uvicorn app.main:app --reload`; OpenAPI is at
    `/api/v1/docs`.
 4. Run `pytest`. For a production-like stack, export

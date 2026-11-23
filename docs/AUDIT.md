@@ -41,9 +41,10 @@ claims.
 - `new_track_thresh` is validated by `Settings.validate()`.
 - `run_mtmc` accepts `appearance_weight` and the CLI passes the configured value
   instead of silently using the library default.
-- Privacy policy is still heuristic in the backend: it blurs the lower region of
-  each vehicle box. A dedicated plate detector is still required before the
-  stronger core-policy guarantee can be claimed.
+- Privacy policy in the backend is configurable: blur is opt-in, and plate
+  numbers are read by throttled CPU OCR from the lower vehicle region and stored
+  in `detection_events.plate_text`. A dedicated plate detector would still
+  improve recall over the crop heuristic.
 - CI now fails on lint errors, syntax errors, secret patterns, core tests, backend
   tests, or a broken dashboard build.
 
@@ -54,8 +55,8 @@ claims.
    environment and re-run `yv check-models`.
 3. Implement durable jobs (Redis/RQ or equivalent), Postgres job state, and
    Alembic migrations for the backend.
-4. Replace the heuristic blur with a plate detector or whole-vehicle redaction
-   selected by policy, and add a privacy regression test with real frames.
+4. Replace the crop-based OCR heuristic with a dedicated plate detector and add
+   a recognition-quality regression test with real frames.
 5. Make audit logs append-only/hash-chained and add the retention job.
 6. Add MOT/MTMC/ReID evaluation datasets and publish measured reports.
 7. Split the Angular page component and remove API keys from `localStorage`.

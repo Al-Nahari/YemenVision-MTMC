@@ -15,11 +15,12 @@ present locally.
   model manifests. Do not use it for ReID or MTMC results.
 - `models/detector_best.pt` matches its manifest SHA-256, but validating it
   requires a working OpenCV runtime (`cv2`).
-- The backend's plate redaction is a conservative heuristic until a dedicated
-  plate detector is wired in.
+- Plate numbers are read with throttled CPU OCR and stored in the event logs;
+  video blur is now opt-in for deployments that need redacted output.
+- `docs/PERFORMANCE_PLAN.md` documents the CPU budget and scaling plan.
 
-See `docs/AUDIT.md`, `docs/BASELINE.md`, and `docs/MODELS.md` for evidence and
-open blockers.
+See `docs/AUDIT.md`, `docs/BASELINE.md`, `docs/MODELS.md`, and
+`docs/PERFORMANCE_PLAN.md` for evidence and open blockers.
 
 ## Install
 
@@ -30,6 +31,9 @@ pip install -e ".[dev]"
 ```
 
 Optional runtime dependencies: `pip install -e ".[detection,reid,api,evaluation]"`.
+For CPU plate OCR in the backend, run
+`pip install --no-deps -r backend/requirements-ocr.txt` after installing the
+backend requirements.
 
 ## Model checks
 
