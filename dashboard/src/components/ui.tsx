@@ -14,13 +14,13 @@ export function PageHeading({
   badge?: string;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-white/[.08] pb-5">
       <div>
-        <h2 className="text-2xl font-bold text-white">{title}</h2>
+        <h2 className="text-2xl font-extrabold tracking-tight text-white">{title}</h2>
         {subtitle && <p className="mt-1 text-sm text-slate-400">{subtitle}</p>}
       </div>
       {badge && (
-        <span className="rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-400">
+        <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-bold text-cyan-300">
           {badge}
         </span>
       )}
@@ -47,7 +47,7 @@ export function StatCard({
   };
 
   return (
-    <div className="panel relative overflow-hidden">
+    <div className="stat-card relative overflow-hidden">
       <p className="mb-1 text-xs font-semibold text-slate-400">{label}</p>
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-3xl font-extrabold text-white">{value}</h3>

@@ -89,11 +89,11 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
-      <div dir="rtl" className="flex min-h-screen flex-col bg-slate-950 font-sans text-slate-100">
-      <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/90 px-5 py-3 shadow-xl backdrop-blur-md">
+      <div dir="rtl" className="flex min-h-screen flex-col font-sans text-slate-100">
+      <header className="topbar sticky top-0 z-50 border-b border-white/[.08] px-5 py-3 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <NavLink to="/" className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-bl from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/20">
+            <span className="brand-mark flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-bl from-cyan-500 via-blue-600 to-indigo-700">
               <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
@@ -109,17 +109,21 @@ export default function App() {
             </span>
           </NavLink>
 
-          <nav aria-label="التنقل الرئيسي" className="flex flex-wrap items-center gap-1 text-sm">
+           <div className="hidden items-center gap-2 text-xs text-slate-400 xl:flex">
+             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/60" />
+             النظام متصل
+           </div>
+           <nav aria-label="التنقل الرئيسي" className="flex max-w-full flex-wrap items-center gap-1 text-sm">
             {navigation.map((item) => (
               <NavLink
                 key={item.path}
                 to={item.path}
                 end={item.path === '/'}
                 className={({ isActive }) =>
-                  `rounded-lg px-3 py-2 transition ${
+                  `nav-item ${
                     isActive
-                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                      : 'text-slate-300 hover:bg-slate-800'
+                       ? 'nav-item-active'
+                       : ''
                   }`
                 }
               >

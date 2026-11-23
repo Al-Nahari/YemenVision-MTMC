@@ -7,11 +7,12 @@ export default function OverviewPage() {
 
   return (
     <div className="animate-fadeIn space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-blue-800/40 bg-gradient-to-l from-blue-900/50 via-indigo-950/50 to-slate-900/80 p-8 shadow-2xl">
+      <div className="hero-3d relative overflow-hidden rounded-3xl border border-blue-400/20 bg-gradient-to-l from-blue-900/60 via-indigo-950/70 to-slate-900/90 p-8">
         <div className="pointer-events-none absolute -bottom-10 -left-10 h-64 w-64 rounded-full bg-blue-600/10 blur-3xl" />
         <div className="relative z-10 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
           <div>
-            <span className="mb-3 inline-block rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-bold tracking-wider text-blue-400">
+            <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-bold tracking-wider text-cyan-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_currentColor]" />
               غرفة العمليات المركزية
             </span>
             <h2 className="mb-2 text-3xl font-extrabold text-white">
