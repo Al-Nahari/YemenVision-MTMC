@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 
@@ -70,7 +69,7 @@ class TrackletBuilder:
     @staticmethod
     def _candidate(frame: np.ndarray, frame_index: int, box: tuple[float, float, float, float], confidence: float) -> CropCandidate | None:
         height, width = frame.shape[:2]
-        x1, y1, x2, y2 = (int(round(value)) for value in box)
+        x1, y1, x2, y2 = (round(value) for value in box)
         clipped = (max(0, x1), max(0, y1), min(width, x2), min(height, y2))
         if clipped[2] <= clipped[0] or clipped[3] <= clipped[1]:
             return None
@@ -102,5 +101,5 @@ class TrackletBuilder:
         return record
 
     def finish(self) -> list[TrackletRecord]:
-        records = [self.close(track_id) for track_id in sorted(list(self._records))]
+        records = [self.close(track_id) for track_id in sorted(self._records)]
         return [record for record in records if record is not None]

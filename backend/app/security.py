@@ -2,7 +2,9 @@
 import json
 import time
 from collections import defaultdict, deque
-from fastapi import Header, HTTPException, Request
+
+from fastapi import Depends, Header, HTTPException, Request
+
 from app.config import settings
 
 _requests = defaultdict(deque)
@@ -13,15 +15,15 @@ def principal(x_api_key: str | None = Header(default=None)):
         raise HTTPException(401, 'Missing API key')
     try:
         users = json.loads(settings.api_keys_json)
-    except (TypeError, json.JSONDecodeError):
-        raise HTTPException(503, 'API key configuration is invalid')
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, 'API key configuration is invalid') from exc
     identity = users.get(x_api_key)
     if not isinstance(identity, dict) or not identity.get('subject') or not isinstance(identity.get('roles'), list):
         raise HTTPException(401, 'Invalid API key')
     return identity
 
 def require(*roles):
-    def dependency(user = __import__('fastapi').Depends(principal)):
+    def dependency(user=Depends(principal)):
         if not set(roles).intersection(user.get('roles', [])):
             raise HTTPException(403, 'Insufficient role')
         return user

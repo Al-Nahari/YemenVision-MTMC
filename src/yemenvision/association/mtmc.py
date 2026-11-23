@@ -74,7 +74,8 @@ def _load_run(run_dir: Path) -> list[Tracklet]:
 
 
 def run_mtmc(run_dirs: list[str | Path], output_dir: str | Path, topology_path: str | Path | None,
-             threshold: float = 0.5, allow_appearance_only: bool = False) -> MTMCResult:
+             threshold: float = 0.5, allow_appearance_only: bool = False,
+             appearance_weight: float = 0.8) -> MTMCResult:
     runs = sorted(Path(item).resolve() for item in run_dirs)
     tracklets = [tracklet for run in runs for tracklet in _load_run(run)]
     nodes = sorted((item.camera_id, item.track_id) for item in tracklets)
@@ -85,7 +86,9 @@ def run_mtmc(run_dirs: list[str | Path], output_dir: str | Path, topology_path: 
         links: list[Link] = []
     else:
         links = []
-        associator = CrossCameraAssociator(topology, threshold=threshold)
+        associator = CrossCameraAssociator(
+            topology, appearance_weight=appearance_weight, threshold=threshold
+        )
         for source in sorted(tracklets, key=lambda item: (item.camera_id, item.track_id)):
             targets = [item for item in tracklets if item.camera_id != source.camera_id and item.t_start >= source.t_end]
             if not topology and allow_appearance_only:

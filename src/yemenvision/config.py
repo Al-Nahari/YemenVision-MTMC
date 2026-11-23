@@ -37,9 +37,11 @@ class DetectionConfig:
 
 @dataclass(frozen=True)
 class TrackingConfig:
-    track_high_thresh: float = 0.25
+    # Keep these defaults aligned with configs/default.yaml. The previous
+    # 0.25/0.25 defaults silently disagreed with the shipped configuration.
+    track_high_thresh: float = 0.55
     track_low_thresh: float = 0.1
-    new_track_thresh: float = 0.25
+    new_track_thresh: float = 0.55
     track_buffer: int = 50
     match_thresh: float = 0.8
     max_crops_per_tracklet: int = 8
@@ -80,6 +82,8 @@ class Settings:
             raise ValueError("detection confidence and iou must be in (0, 1]")
         if not 0 <= self.tracking.track_low_thresh <= self.tracking.track_high_thresh <= 1:
             raise ValueError("tracking thresholds must satisfy 0 <= low <= high <= 1")
+        if not 0 <= self.tracking.new_track_thresh <= 1:
+            raise ValueError("tracking new_track_thresh must be in [0, 1]")
         if self.reid.batch_size < 1 or self.reid.crop_count < 1:
             raise ValueError("ReID batch_size and crop_count must be positive")
         if not 0 <= self.association.appearance_weight <= 1:
@@ -98,7 +102,7 @@ class Settings:
 def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key, {})
     if not isinstance(value, dict):
-        raise ValueError(f"config.{key} must be a mapping")
+        raise TypeError(f"config.{key} must be a mapping")
     return dict(value)
 
 

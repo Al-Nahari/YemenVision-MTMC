@@ -5,9 +5,10 @@ import json
 import sys
 from pathlib import Path
 
+from yemenvision.association import run_mtmc
 from yemenvision.config import load_settings
 from yemenvision.registry import ModelRegistry
-from yemenvision.association import run_mtmc
+
 
 def check_models(args: argparse.Namespace) -> int:
     registry = ModelRegistry(args.models_dir, trusted_models_only=args.trusted_models_only)
@@ -65,7 +66,12 @@ def build_validation_set(args: argparse.Namespace) -> int:
 
 
 def run_mtmc_command(args: argparse.Namespace) -> int:
-    result = run_mtmc(args.runs, args.output_dir, args.topology, args.threshold, args.allow_appearance_only)
+    settings = load_settings(args.config)
+    threshold = args.threshold if args.threshold is not None else settings.association.threshold
+    result = run_mtmc(
+        args.runs, args.output_dir, args.topology, threshold, args.allow_appearance_only,
+        appearance_weight=settings.association.appearance_weight,
+    )
     payload = {"global_vehicles": result.global_vehicles, "links": result.links,
                "events": result.events, "abstentions": result.abstentions}
     print(json.dumps(payload, ensure_ascii=False, indent=2) if args.json else payload)
@@ -78,7 +84,7 @@ def run_video(args: argparse.Namespace) -> int:
     detector_record = registry.select("detector", args.detector)
     reid_record = registry.select("reid", args.reid) if args.reid else None
     from yemenvision.detection import VehicleDetector
-    from yemenvision.pipeline import OfflinePipeline, PipelineMetadata
+    from yemenvision.pipeline import OfflinePipeline
     from yemenvision.reid import ReIDEncoder
     from yemenvision.tracking import IoUTracker
     detector = VehicleDetector(detector_record.path, confidence=settings.detection.confidence,
@@ -115,7 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     mtmc = sub.add_parser("mtmc", help="associate tracklets from multiple runs")
     mtmc.add_argument("runs", nargs="+", help="run directories containing tracklets.jsonl")
     mtmc.add_argument("--output-dir", required=True); mtmc.add_argument("--topology", default=None)
-    mtmc.add_argument("--threshold", type=float, default=0.5); mtmc.add_argument("--allow-appearance-only", action="store_true")
+    mtmc.add_argument("--threshold", type=float, default=None)
+    mtmc.add_argument("--config", default=None)
+    mtmc.add_argument("--allow-appearance-only", action="store_true")
     mtmc.add_argument("--json", action="store_true"); mtmc.set_defaults(func=run_mtmc_command)
     run = sub.add_parser("run", help="run the real detector/tracker/ReID pipeline")
     run.add_argument("video"); run.add_argument("--camera-id", required=True)

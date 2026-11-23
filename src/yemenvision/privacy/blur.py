@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+
 def blur_plates(frame: Any, boxes: list[tuple[int, int, int, int]]) -> Any:
     """Blur explicitly supplied plate boxes; no OCR or plate detection is implied."""
     try:

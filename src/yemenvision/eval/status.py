@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+
 class EvaluationStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"

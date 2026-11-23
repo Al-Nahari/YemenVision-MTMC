@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from yemenvision.detection import Detection
 
@@ -9,8 +10,8 @@ from yemenvision.detection import Detection
 class SingleCameraTracker(Protocol):
     """Camera-local tracker contract. IDs are never global identities."""
 
-    def update(self, frame_index: int, detections: Sequence[Detection]) -> list["TrackObservation"]: ...
-    def finish(self) -> list["TrackObservation"]: ...
+    def update(self, frame_index: int, detections: Sequence[Detection]) -> list[TrackObservation]: ...
+    def finish(self) -> list[TrackObservation]: ...
 
 
 @dataclass(frozen=True)

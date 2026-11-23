@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+
 @dataclass(frozen=True)
 class ReIDModelSpec:
     backbone: str = "resnet50"
@@ -21,8 +22,8 @@ class ReIDEncoder:
     def __init__(self, checkpoint: str | Path, device: str = "auto", flip_tta: bool = True) -> None:
         try:
             import torch
-            import torch.nn as nn
             import torch.nn.functional as F
+            from torch import nn
             from torchvision import models, transforms
         except ImportError as exc:
             raise RuntimeError("ReID requires torch and torchvision; install yemenvision-mtmc[reid]") from exc
@@ -83,7 +84,7 @@ class ReIDEncoder:
         required = {"backbone.", "bn."}
         if not all(any(k.startswith(prefix) for k in state) for prefix in required):
             raise ValueError("ReID checkpoint lacks required backbone or BNNeck keys; partial loading refused")
-        missing, unexpected = self.model.load_state_dict(state, strict=False)
+        missing, _unexpected = self.model.load_state_dict(state, strict=False)
         forbidden_missing = [k for k in missing if k.startswith(("backbone.", "bn.", "pool."))]
         if forbidden_missing:
             raise ValueError(f"invalid ReID checkpoint keys: missing={forbidden_missing}")

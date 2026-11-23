@@ -1,7 +1,5 @@
+import json
 from datetime import datetime, timezone
-from pathlib import Path
-
-import pytest
 
 from yemenvision.association import CrossCameraAssociator, Tracklet
 from yemenvision.config import load_settings
@@ -29,6 +27,45 @@ def test_registry_rejects_invalid_names_without_torch(tmp_path):
 def test_registry_class_contract_constant_is_stable():
     assert len(EXPECTED_CLASSES) == 21
     assert EXPECTED_CLASSES[-1] == "wheelbarrow"
+
+
+def test_registry_revokes_a_manifest_model_even_when_the_hash_matches(tmp_path):
+    model = tmp_path / "reid_best.pt"
+    model.write_bytes(b"truncated")
+    registry = ModelRegistry(tmp_path)
+    expected = registry.sha256(model)
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "models": {"reid_best.pt": {"sha256": expected}},
+        "revoked": {"reid_best.pt": "truncated local artifact"},
+    }), encoding="utf-8")
+
+    record = ModelRegistry(tmp_path).discover()[0]
+
+    assert not record.valid
+    assert any("revoked" in issue.message for issue in record.issues)
+
+
+def test_registry_detects_a_truncated_checkpoint_before_torch_load(tmp_path):
+    model = tmp_path / "detector_best.pt"
+    model.write_bytes(b"not-a-zip")
+
+    record = ModelRegistry(tmp_path).validate_checkpoint(model)
+
+    assert not record.valid
+    assert any("ZIP archive" in issue.message for issue in record.issues)
+
+
+def test_registry_flags_a_manifest_hash_mismatch(tmp_path):
+    model = tmp_path / "detector_best.pt"
+    model.write_bytes(b"payload")
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "models": {"detector_best.pt": {"sha256": "0" * 64}},
+    }), encoding="utf-8")
+
+    record = ModelRegistry(tmp_path).discover()[0]
+
+    assert not record.valid
+    assert any("SHA-256" in issue.message for issue in record.issues)
 
 
 def test_associator_rejects_zero_norm_and_dimension_mismatch():

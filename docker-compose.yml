@@ -1,16 +1,24 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: yemenvision-backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://traffic:traffic_secure_pass@postgres:5432/traffic
-      - API_KEYS_JSON={"admin":{"subject":"admin-user","roles":["admin","operator"]}}
-      - DETECTOR_WEIGHTS=artifacts/best.pt
-      - REID_WEIGHTS=artifacts/reid_best.pt
+      DATABASE_URL: postgresql+psycopg://traffic:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/traffic
+      API_KEYS_JSON: ${API_KEYS_JSON:?set API_KEYS_JSON}
+      MEDIA_SIGNING_KEY: ${MEDIA_SIGNING_KEY:?set MEDIA_SIGNING_KEY}
+      YV_MODELS_DIR: /models
+      YV_TRUSTED_MODELS_ONLY: "true"
+      YV_CORS_ORIGINS: ${YV_CORS_ORIGINS:-http://localhost:4200}
+      YV_PRIVACY_BLUR_PLATES: "true"
+      YV_PRIVACY_BLUR_MODE: ${YV_PRIVACY_BLUR_MODE:-plate_region}
+      YV_PRIVACY_ALLOW_UNBLURRED: "false"
+    volumes:
+      - ./models:/models:ro
+      - ./processed-videos:/app/processed-videos
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,9 +30,7 @@ services:
     environment:
       POSTGRES_DB: traffic
       POSTGRES_USER: traffic
-      POSTGRES_PASSWORD: traffic_secure_pass
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -37,8 +43,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: yemenvision-redis
-    ports:
-      - "6379:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
     restart: unless-stopped
 
 volumes:

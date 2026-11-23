@@ -1,13 +1,14 @@
 from datetime import datetime
-from typing import Any, List, Optional
+
 from pydantic import BaseModel, Field, field_validator
+
 
 class CameraIn(BaseModel):
     id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')
-    zone: Optional[str] = None
-    direction: Optional[str] = None
+    zone: str | None = None
+    direction: str | None = None
     active: bool = True
-    stream_url: Optional[str] = Field(default=None, max_length=2048)
+    stream_url: str | None = Field(default=None, max_length=2048)
 
     @field_validator('stream_url')
     @classmethod
@@ -15,6 +16,20 @@ class CameraIn(BaseModel):
         if value and not value.lower().startswith(('rtsp://', 'rtsps://', 'http://', 'https://')):
             raise ValueError('stream_url must use RTSP, RTSPS, HTTP, or HTTPS')
         return value
+
+class CameraUpdate(BaseModel):
+    zone: str | None = None
+    direction: str | None = None
+    active: bool | None = None
+    stream_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator('stream_url')
+    @classmethod
+    def validate_stream_url(cls, value):
+        if value and not value.lower().startswith(('rtsp://', 'rtsps://', 'http://', 'https://')):
+            raise ValueError('stream_url must use RTSP, RTSPS, HTTP, or HTTPS')
+        return value
+
 
 class EventIn(BaseModel):
     id: str = Field(pattern=r'^[A-Za-z0-9_-]{8,128}$')
@@ -24,9 +39,9 @@ class EventIn(BaseModel):
     payload: dict = Field(default_factory=dict)
 
 class TrafficQuery(BaseModel):
-    camera_id: Optional[str] = None
-    start: Optional[datetime] = None
-    end: Optional[datetime] = None
+    camera_id: str | None = None
+    start: datetime | None = None
+    end: datetime | None = None
     limit: int = Field(default=100, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)
 
@@ -49,9 +64,10 @@ class TrackletOut(BaseModel):
 class InferenceVideoRequest(BaseModel):
     camera_id: str
     video_path: str
-    conf_threshold: float = Field(default=0.25, ge=0.05, le=0.95)
-    iou_threshold: float = Field(default=0.3, ge=0.1, le=0.9)
-    max_frames: Optional[int] = Field(default=None, ge=1)
+    conf_threshold: float = Field(default=0.55, ge=0.05, le=0.95)
+    iou_threshold: float = Field(default=0.6, ge=0.1, le=0.9)
+    max_frames: int | None = Field(default=None, ge=1)
+    original_name: str | None = None
 
 class InferenceVideoResponse(BaseModel):
     status: str
@@ -62,19 +78,19 @@ class InferenceVideoResponse(BaseModel):
     events_count: int
     duration_seconds: float
     model_version: str
-    video_url: Optional[str] = None
+    video_url: str | None = None
 
 class DetectionItem(BaseModel):
-    box: List[float]
+    box: list[float]
     confidence: float
     class_id: int
     class_name: str
 
 class InferenceFrameRequest(BaseModel):
     camera_id: str
-    detections: List[DetectionItem]
+    detections: list[DetectionItem]
     frame_index: int = 0
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
 
 class InferenceFrameResponse(BaseModel):
     camera_id: str

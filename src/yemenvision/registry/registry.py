@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -88,11 +89,26 @@ class ModelRegistry:
             return value.get("sha256")
         return value if isinstance(value, str) else None
 
+    def _revoked_reason(self, name: str) -> str | None:
+        """Return a human-readable reason when the manifest revokes a model."""
+        revoked = self._manifest.get("revoked")
+        if isinstance(revoked, dict):
+            reason = revoked.get(name)
+            if reason is None:
+                return None
+            return str(reason) if reason else "revoked by manifest.json"
+        if isinstance(revoked, list) and name in revoked:
+            return "revoked by manifest.json"
+        return None
+
     def _base_record(self, path: Path) -> ModelRecord:
         record = ModelRecord(path=path, kind=self._kind(path), size_bytes=path.stat().st_size)
         record.sha256 = self.sha256(path)
         if path.name.lower().endswith("_last.pt"):
             record.issues.append(ModelIssue("ERROR", "checkpoint *_last.pt is not valid for inference"))
+        revoked = self._revoked_reason(path.name)
+        if revoked:
+            record.issues.append(ModelIssue("ERROR", f"model is revoked: {revoked}"))
         if record.kind == "reid_attribute" and path.name == "vehicle_attributes.pt":
             # vehicle_attributes.pt is an auxiliary model, not invalid for inference generally
             pass
@@ -144,11 +160,20 @@ class ModelRegistry:
         target = Path(path)
         if not target.exists():
             return ModelRecord(target, self._kind(target), issues=[ModelIssue("ERROR", "file does not exist")])
-        record = self._base_record(target) if not _hash_already_computed else self._base_record(target)
+        record = self._base_record(target)
         if not record.valid:
             return record
         if self.trusted_models_only and self._expected_hash(target.name) != record.sha256:
             record.issues.append(ModelIssue("ERROR", "refusing torch.load for an untrusted checkpoint"))
+            return record
+        # Modern PyTorch checkpoints are ZIP archives. Detect truncated downloads
+        # before torch.load, which otherwise reports a misleading stream error.
+        if not zipfile.is_zipfile(target):
+            record.issues.append(ModelIssue(
+                "ERROR",
+                "checkpoint is not a valid PyTorch ZIP archive (truncated or corrupted); "
+                "replace the file with a verified export",
+            ))
             return record
         try:
             import torch

@@ -4,10 +4,10 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -121,8 +121,7 @@ class OfflinePipeline:
             if abs(actual_metadata.fps - capture.fps) > 1e-6:
                 raise ValueError("metadata FPS does not match video FPS")
             builder = TrackletBuilder(camera_id, capture.fps)
-            processed = 0
-            for frame_index, frame in capture:
+            for processed, (frame_index, frame) in enumerate(capture):
                 if max_frames is not None and processed >= max_frames:
                     break
                 detect_start = time.perf_counter()
@@ -142,7 +141,6 @@ class OfflinePipeline:
                                        "class_id": detection.class_id, "class_name": detection.class_name,
                                        "confidence": detection.confidence, "box": list(detection.xyxy),
                                        "state": observation.state})
-                processed += 1
             self.tracker.finish()
             records = builder.finish()
             reid_start = time.perf_counter()

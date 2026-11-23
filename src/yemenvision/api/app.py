@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import secrets
 import shutil
 import tempfile
 import threading
@@ -12,7 +11,15 @@ from typing import Any
 
 def create_app() -> Any:
     try:
-        from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
+        from fastapi import (
+            BackgroundTasks,
+            Depends,
+            FastAPI,
+            File,
+            Header,
+            HTTPException,
+            UploadFile,
+        )
     except ImportError as exc:
         raise RuntimeError("API requires fastapi and python-multipart; install yemenvision-mtmc[api]") from exc
 

@@ -6,7 +6,9 @@ COPY pyproject.toml requirements-lock.txt ./
 COPY src ./src
 RUN python3 -m pip install --no-cache-dir --upgrade pip && python3 -m pip install --no-cache-dir .[detection,reid,api]
 COPY configs ./configs
+# Weights are gitignored and must be mounted read-only at runtime
+# (docker-compose.yv.yml mounts ./models at /models). Copying them here would
+# make the image build depend on untracked local artifacts.
 COPY models/README.md models/manifest.json models/detector_inference_config.json ./models/
-COPY models/detector_best.pt models/reid_best.pt models/vehicle_attributes.pt ./models/
 ENTRYPOINT ["yv"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]

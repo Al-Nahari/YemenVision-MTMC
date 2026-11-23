@@ -1,16 +1,40 @@
+import logging
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import uuid4
 
-import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, DetectionEvent, ModelVersion, Tracklet, TrafficAggregate
-from app.schemas import InferenceVideoRequest, InferenceVideoResponse, InferenceFrameRequest, InferenceFrameResponse
+from app.config import settings
+from app.media import media_url
+from app.models import AuditLog, DetectionEvent, ProcessedVideo, Tracklet, TrafficAggregate
+from app.plate_reader import engine_status, read_plate
+from app.privacy import redact_frame
+from app.schemas import (
+    InferenceFrameRequest,
+    InferenceFrameResponse,
+    InferenceVideoRequest,
+    InferenceVideoResponse,
+)
+
+LOGGER = logging.getLogger(__name__)
+
+
+def json_safe(value: Any) -> Any:
+    """Convert values that SQLAlchemy's JSON column cannot serialize by default."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    return value
+
 
 def audit(db: Session, actor: str, action: str, resource: str, detail: dict) -> None:
     db.add(AuditLog(
@@ -22,7 +46,8 @@ def audit(db: Session, actor: str, action: str, resource: str, detail: dict) -> 
         occurred_at=datetime.now(timezone.utc)
     ))
 
-def ingest_event(db: Session, event: Any, actor: str) -> Tuple[DetectionEvent, bool]:
+
+def ingest_event(db: Session, event: Any, actor: str) -> tuple[DetectionEvent, bool]:
     existing = db.get(DetectionEvent, event.id)
     if existing:
         return existing, False
@@ -37,6 +62,7 @@ def ingest_event(db: Session, event: Any, actor: str) -> Tuple[DetectionEvent, b
     db.commit()
     return row, True
 
+
 def ingest_tracklet(
     db: Session,
     camera_id: str,
@@ -46,7 +72,7 @@ def ingest_tracklet(
     end_time: datetime,
     payload: dict,
     actor: str
-) -> Tuple[Tracklet, bool]:
+) -> tuple[Tracklet, bool]:
     q = select(Tracklet).where(
         Tracklet.camera_id == camera_id,
         Tracklet.video_id == video_id,
@@ -76,164 +102,105 @@ def ingest_tracklet(
 
 
 class ModelManager:
+    """Loads only manifest-verified models; never falls back to a different model."""
+
     _detector = None
-    _reid_extractor = None
-    _version_name = "yolo11m_osnet_v2"
+    _version_name: str | None = None
+    _load_lock = threading.Lock()
+    _inference_lock = threading.Lock()
 
     @classmethod
-    def get_detector(cls, weights_path: Optional[str] = None):
+    def get_detector(cls):
         if cls._detector is not None:
             return cls._detector
+        with cls._load_lock:
+            if cls._detector is not None:
+                return cls._detector
 
-        path = weights_path or os.getenv("DETECTOR_WEIGHTS", "artifacts/yolov11m.pt")
-        try:
-            from ultralytics import YOLO
-            if Path(path).exists():
-                cls._detector = YOLO(path)
-                cls._version_name = Path(path).stem
-            else:
-                cls._detector = YOLO("yolo11n.pt")
-                cls._version_name = "yolo11n_coco_pretrained"
-        except Exception:
-            cls._detector = "simulated"
-            cls._version_name = "simulated_yolo11m_osnet"
-        return cls._detector
+            try:
+                from yemenvision.registry import EXPECTED_CLASSES, ModelRegistry
+            except ImportError as exc:
+                raise RuntimeError(
+                    'The yemenvision package is not installed; install the project package '
+                    '(pip install -e .) before loading models'
+                ) from exc
+
+            registry = ModelRegistry(settings.models_dir, trusted_models_only=settings.trusted_models_only)
+            requested = os.getenv('YV_DETECTOR_MODEL') or None
+            try:
+                record = registry.select('detector', requested)
+            except (FileNotFoundError, ValueError) as exc:
+                raise RuntimeError(
+                    f'No verified detector is available in {settings.models_dir}: {exc}'
+                ) from exc
+
+            try:
+                from ultralytics import YOLO
+            except ImportError as exc:
+                raise RuntimeError(
+                    'Detection requires ultralytics and a working OpenCV runtime'
+                ) from exc
+
+            try:
+                model = YOLO(str(record.path))
+            except Exception as exc:
+                raise RuntimeError(f'Could not load detector {record.path.name}: {exc}') from exc
+
+            names = model.names
+            actual = [names[i] for i in range(len(names))] if isinstance(names, dict) else list(names)
+            if actual != EXPECTED_CLASSES:
+                raise RuntimeError(
+                    f'Detector {record.path.name} does not match the 21-class contract; '
+                    'refusing to run with a different label space'
+                )
+
+            cls._detector = model
+            cls._version_name = record.path.stem
+            LOGGER.info('Loaded verified detector %s', record.path)
+            return model
 
     @classmethod
-    def extract_reid_embedding(cls, crop: Any = None) -> List[float]:
-        if cls._reid_extractor is not None:
-            try:
-                emb = cls._reid_extractor.extract(crop)
-                if emb is not None:
-                    return emb
-            except Exception:
-                pass
-        vec = np.random.RandomState(int(time.time() * 1000) % 2147483647).randn(512).astype(np.float32)
-        norm = np.linalg.norm(vec)
-        return (vec / (norm + 1e-12)).tolist()
+    def version(cls) -> str | None:
+        return cls._version_name
+
+    @classmethod
+    def inference_lock(cls) -> threading.Lock:
+        # The Ultralytics tracker keeps per-model state (persist=True). Serialize
+        # inference until each job owns its own tracker instance.
+        return cls._inference_lock
 
 
-def run_video_inference(
-    db: Session,
-    request: InferenceVideoRequest,
-    actor: str
-) -> InferenceVideoResponse:
-    t_start = time.time()
-    video_path = Path(request.video_path)
-    video_id = video_path.stem or f"vid_{uuid4().hex[:8]}"
+def _annotate(frame: Any, boxes: list[list[float]], track_ids: list[int],
+              confidences: list[float], class_names: list[str]) -> Any:
+    import cv2
 
-    ModelManager.get_detector()
-    model_version = ModelManager._version_name
-
-    frames_count = 0
-    tracklets_count = 0
-    events_count = 0
-    now = datetime.now(timezone.utc)
-
-    max_frames = request.max_frames or 60
-    simulated_tracks = [
-        {"id": 101, "class_name": "car", "start": 0, "end": 45, "box": [120.0, 160.0, 240.0, 260.0]},
-        {"id": 102, "class_name": "bus", "start": 10, "end": 55, "box": [320.0, 130.0, 500.0, 290.0]},
-        {"id": 103, "class_name": "truck", "start": 20, "end": 58, "box": [70.0, 190.0, 210.0, 330.0]},
-        {"id": 104, "class_name": "motorcycle", "start": 5, "end": 35, "box": [400.0, 220.0, 460.0, 280.0]}
-    ]
-
-    for frame_idx in range(max_frames):
-        frames_count += 1
-        for tr in simulated_tracks:
-            if tr["start"] <= frame_idx <= tr["end"]:
-                if frame_idx % 4 == 0:
-                    evt_id = f"evt_{uuid4().hex[:16]}"
-                    event_row = DetectionEvent(
-                        id=evt_id,
-                        camera_id=request.camera_id,
-                        occurred_at=now,
-                        payload={
-                            "event_type": "vehicle_detection",
-                            "frame_index": frame_idx,
-                            "video_id": video_id,
-                            "class_name": tr["class_name"],
-                            "confidence": round(0.85 + (frame_idx % 10) * 0.01, 2),
-                            "box": tr["box"]
-                        }
-                    )
-                    db.add(event_row)
-                    events_count += 1
-
-    for tr in simulated_tracks:
-        embedding = ModelManager.extract_reid_embedding()
-        ingest_tracklet(
-            db=db,
-            camera_id=request.camera_id,
-            video_id=video_id,
-            local_track_id=tr["id"],
-            start_time=now,
-            end_time=now,
-            payload={
-                "vehicle_type": tr["class_name"],
-                "box": tr["box"],
-                "frames_tracked": tr["end"] - tr["start"] + 1,
-                "embedding": embedding,
-                "embedding_dim": len(embedding),
-                "model_version": model_version,
-                "reid_matched": True
-            },
-            actor=actor
-        )
-        tracklets_count += 1
-
-    agg_id = f"agg_{uuid4().hex[:12]}"
-    db.add(TrafficAggregate(
-        id=agg_id,
-        camera_id=request.camera_id,
-        bucket_start=now,
-        granularity="1min",
-        payload={
-            "total_vehicles": len(simulated_tracks),
-            "classes": {"car": 1, "bus": 1, "truck": 1, "motorcycle": 1},
-            "avg_confidence": 0.91,
-            "video_id": video_id
-        }
-    ))
-
-    db.commit()
-    elapsed = time.time() - t_start
-
-    audit(db, actor, 'inference.video', f'videos/{video_id}', {
-        'camera_id': request.camera_id,
-        'frames': frames_count,
-        'tracklets': tracklets_count,
-        'events': events_count,
-        'duration_seconds': elapsed
-    })
-    db.commit()
-
-    return InferenceVideoResponse(
-        status="completed",
-        camera_id=request.camera_id,
-        video_id=video_id,
-        frames_processed=frames_count,
-        tracklets_count=tracklets_count,
-        events_count=events_count,
-        duration_seconds=round(elapsed, 3),
-        model_version=model_version
-    )
+    annotated = frame.copy()
+    for box, track_id, confidence, class_name in zip(boxes, track_ids, confidences, class_names):
+        x1, y1, x2, y2 = (round(value) for value in box)
+        color = (0, 200, 0) if track_id >= 0 else (0, 165, 255)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        label = f'{class_name} {confidence:.2f}' if track_id < 0 else f'{class_name} #{track_id} {confidence:.2f}'
+        cv2.putText(annotated, label, (x1, max(12, y1 - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+    return annotated
 
 
 def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: str, output_path: Path) -> InferenceVideoResponse:
-    """Run real detector tracking on uploaded frames and persist an annotated MP4."""
+    """Run detector/tracker on an uploaded video and persist reviewable output.
+
+    Plate numbers are read from throttled vehicle crops and stored in the event
+    and tracklet logs. The video itself is only blurred when explicitly enabled
+    in settings.
+    """
     source = Path(request.video_path)
     if not source.is_file():
         raise ValueError('Uploaded video could not be read')
     try:
         import cv2
-        import ultralytics  # noqa: F401
     except ImportError as exc:
-        raise RuntimeError('Video inference requires opencv-python and ultralytics') from exc
+        raise RuntimeError('Video inference requires opencv-python-headless') from exc
 
     detector = ModelManager.get_detector()
-    if detector == 'simulated':
-        raise RuntimeError('A real detector could not be loaded; refusing to return simulated results')
     capture = cv2.VideoCapture(str(source))
     if not capture.isOpened():
         raise ValueError('The uploaded file is not a readable video')
@@ -243,11 +210,20 @@ def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: s
     if width <= 0 or height <= 0:
         capture.release()
         raise ValueError('Video has invalid dimensions')
+    # Cap inference resolution on weak CPUs. Frames are resized once, so both
+    # detection cost and output file size drop without changing the frame count.
+    if width > settings.max_infer_width:
+        ratio = settings.max_infer_width / width
+        width = max(160, int(width * ratio))
+        height = max(90, int(height * ratio))
+    display_video_id = Path(request.original_name or '').stem or source.stem
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+    # Chrome/Edge cannot play OpenCV's default mp4v stream. VP8 in WebM is
+    # supported by OpenCV's FFmpeg backend and by all modern browsers.
+    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*'VP80'), fps, (width, height))
     if not writer.isOpened():
         capture.release()
-        raise RuntimeError('Could not create processed video')
+        raise RuntimeError('Could not create a browser-compatible processed video')
 
     started = time.time()
     frames = events = 0
@@ -258,46 +234,122 @@ def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: s
             ok, frame = capture.read()
             if not ok:
                 break
-            result = detector.track(frame, persist=True, conf=request.conf_threshold, iou=request.iou_threshold, verbose=False)[0]
-            annotated = result.plot()
-            writer.write(annotated)
+            if frame.shape[1] != width or frame.shape[0] != height:
+                frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+            with ModelManager.inference_lock():
+                result = detector.track(
+                    frame, persist=True, conf=request.conf_threshold,
+                    iou=request.iou_threshold, verbose=False,
+                )[0]
             frames += 1
             boxes = result.boxes
-            if boxes is None:
+            if boxes is None or len(boxes) == 0:
+                writer.write(frame)
                 continue
-            ids = boxes.id.int().cpu().tolist() if boxes.id is not None else list(range(len(boxes)))
+
+            ids = boxes.id.int().cpu().tolist() if boxes.id is not None else [-1] * len(boxes)
             coords = boxes.xyxy.cpu().tolist()
             confs = boxes.conf.cpu().tolist()
             classes = boxes.cls.int().cpu().tolist()
             names = result.names
+            class_names = [str(names.get(class_id, class_id)) for class_id in classes]
+
+            # OCR uses the clean crop; blurring (when explicitly enabled) is
+            # applied only to the video frames, never to the stored log data.
+            ocr_source = frame.copy() if settings.plate_ocr_enabled and settings.blur_plates else frame
+            if settings.blur_plates:
+                redact_frame(frame, coords)
+            annotated = _annotate(frame, coords, ids, confs, class_names)
+            writer.write(annotated)
+
             timestamp = datetime.now(timezone.utc)
-            for track_id, box, confidence, class_id in zip(ids, coords, confs, classes):
+            frame_index = frames - 1
+            ocr_calls = 0
+            ocr_ready = engine_status()['available']
+            for track_id, box, confidence, class_id, class_name in zip(ids, coords, confs, classes, class_names):
                 events += 1
-                info = track_ids.setdefault(track_id, {'start': timestamp, 'end': timestamp, 'class_name': str(names.get(class_id, class_id)), 'box': box, 'frames_tracked': 0})
+                info = track_ids.setdefault(track_id, {
+                    'start': timestamp, 'end': timestamp, 'class_name': class_name,
+                    'box': box, 'frames_tracked': 0, 'plate_text': None,
+                    'plate_confidence': 0.0, 'plate_status': 'not_read',
+                })
+                is_new_track = info['frames_tracked'] == 0
                 info['end'] = timestamp
                 info['box'] = box
                 info['frames_tracked'] += 1
-                db.add(DetectionEvent(id=f'evt_{uuid4().hex[:16]}', camera_id=request.camera_id, occurred_at=timestamp,
-                    payload={'event_type': 'vehicle_detection', 'video_id': source.stem, 'frame_index': frames-1,
-                             'class_name': info['class_name'], 'confidence': float(confidence), 'box': box}))
+                plate = None
+                if (settings.plate_ocr_enabled
+                        and ocr_calls < settings.plate_ocr_max_per_frame
+                        and (is_new_track or frame_index % settings.plate_ocr_interval_frames == 0)):
+                    ocr_calls += 1
+                    plate = read_plate(ocr_source, box, settings.plate_ocr_min_confidence)
+                    if not ocr_ready:
+                        ocr_ready = engine_status()['available']
+                    if plate and (not info['plate_text'] or plate['confidence'] > info['plate_confidence']):
+                        info['plate_text'] = plate['text']
+                        info['plate_confidence'] = plate['confidence']
+                        info['plate_status'] = 'read'
+                    elif not plate and info['plate_status'] == 'not_read':
+                        info['plate_status'] = 'no_plate' if ocr_ready else 'ocr_unavailable'
+                db.add(DetectionEvent(
+                    id=f'evt_{uuid4().hex[:16]}', camera_id=request.camera_id,
+                    occurred_at=timestamp, plate_text=info.get('plate_text'),
+                    payload={
+                        'event_type': 'vehicle_detection', 'video_id': display_video_id,
+                        'frame_index': frame_index, 'track_id': track_id,
+                        'class_id': class_id, 'class_name': class_name,
+                        'confidence': float(confidence), 'box': box,
+                        'plate_text': info.get('plate_text'),
+                        'plate_confidence': info.get('plate_confidence', 0.0),
+                        'plate_status': info.get('plate_status', 'not_read'),
+                    },
+                ))
     finally:
         capture.release()
         writer.release()
+
     if frames == 0:
         output_path.unlink(missing_ok=True)
         raise ValueError('No frames could be decoded from the uploaded video')
+
     for track_id, info in track_ids.items():
-        db.add(Tracklet(id=f'trk_{uuid4().hex[:16]}', camera_id=request.camera_id, video_id=source.stem,
+        if track_id < 0:
+            continue
+        db.add(Tracklet(
+            id=f'trk_{uuid4().hex[:16]}', camera_id=request.camera_id, video_id=display_video_id,
             local_track_id=track_id, start_time=info['start'], end_time=info['end'],
-            payload={**info, 'model_version': ModelManager._version_name, 'reid_matched': False}))
-    db.add(TrafficAggregate(id=f'agg_{uuid4().hex[:12]}', camera_id=request.camera_id,
-        bucket_start=datetime.now(timezone.utc), granularity='1min', payload={'total_vehicles': len(track_ids), 'video_id': source.stem}))
-    audit(db, actor, 'inference.video', f'videos/{source.stem}', {'frames': frames, 'tracklets': len(track_ids), 'events': events})
+            payload=json_safe({
+                **info, 'model_version': ModelManager.version(), 'reid_matched': False,
+                'privacy': settings.blur_mode if settings.blur_plates else 'unblurred',
+            }),
+        ))
+    db.add(TrafficAggregate(
+        id=f'agg_{uuid4().hex[:12]}', camera_id=request.camera_id,
+        bucket_start=datetime.now(timezone.utc), granularity='1min',
+        payload={'total_vehicles': len([key for key in track_ids if key >= 0]), 'video_id': display_video_id},
+    ))
+    plate_count = len([info for info in track_ids.values() if info.get('plate_text')])
+    db.add(ProcessedVideo(
+        id=f'vid_{uuid4().hex[:16]}', file_name=output_path.name,
+        original_name=request.original_name or display_video_id, video_id=display_video_id,
+        camera_id=request.camera_id, created_at=datetime.now(timezone.utc),
+        frames_processed=frames, duration_seconds=round(time.time() - started, 3),
+        file_size=output_path.stat().st_size if output_path.exists() else 0,
+        model_version=ModelManager.version(), plate_count=plate_count, source='upload',
+    ))
+    audit(db, actor, 'inference.video', f'videos/{display_video_id}', {
+        'frames': frames, 'tracklets': len(track_ids), 'events': events,
+        'plates': plate_count,
+        'privacy_mode': settings.blur_mode if settings.blur_plates else 'unblurred',
+    })
     db.commit()
-    return InferenceVideoResponse(status='completed', camera_id=request.camera_id, video_id=source.stem,
-        frames_processed=frames, tracklets_count=len(track_ids), events_count=events,
-        duration_seconds=round(time.time()-started, 3), model_version=ModelManager._version_name,
-        video_url=f'/processed-videos/{output_path.name}')
+    return InferenceVideoResponse(
+        status='completed', camera_id=request.camera_id, video_id=display_video_id,
+        frames_processed=frames, tracklets_count=len([key for key in track_ids if key >= 0]),
+        events_count=events, duration_seconds=round(time.time() - started, 3),
+        model_version=ModelManager.version() or 'unknown',
+        video_url=media_url(output_path.name),
+    )
 
 
 def process_live_frame(db: Session, req: InferenceFrameRequest, actor: str) -> InferenceFrameResponse:
@@ -319,10 +371,13 @@ def process_live_frame(db: Session, req: InferenceFrameRequest, actor: str) -> I
         ))
         events_generated += 1
 
+    audit(db, actor, 'inference.frame', f'cameras/{req.camera_id}', {
+        'frame_index': req.frame_index, 'events': events_generated,
+    })
     db.commit()
     return InferenceFrameResponse(
         camera_id=req.camera_id,
         frame_index=req.frame_index,
         events_generated=events_generated,
-        active_tracks=len(req.units if hasattr(req, 'units') else req.detections)
+        active_tracks=len(req.detections),
     )
