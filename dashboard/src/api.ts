@@ -265,6 +265,18 @@ export const api = {
     return new URL(path, `${root}/`).toString();
   },
 
+  startHls: (url: string) =>
+    request<{ session_id: string; playlist_url: string; expires_in: number }>(
+      `/live/hls/start?url=${encodeURIComponent(url)}`,
+      { method: 'POST' },
+    ),
+
+  stopHls: (sessionId: string, token: string) =>
+    request<{ status: string }>(
+      `/live/hls/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(token)}`,
+      { method: 'DELETE' },
+    ),
+
   uploadVideo(
     file: File,
     cameraId: string,

@@ -21,6 +21,7 @@ from app.database import Base, SessionLocal, engine, session
 from app.media import media_url, verify_media_request
 from app.models import AuditLog, Camera, DetectionEvent, InferenceJob, ModelVersion, ProcessedVideo, Tracklet, TrafficAggregate
 from app.jobs import video_jobs
+from app.hls import HlsManager
 from app.queue import enqueue_job
 from app.schemas import (
     CameraIn,
@@ -39,6 +40,7 @@ from app.services import ModelManager, _annotate, audit, ingest_event, process_l
 
 PROCESSED_VIDEO_DIR = Path(os.getenv('PROCESSED_VIDEO_DIR', 'processed-videos')).resolve()
 PROCESSED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+HLS = HlsManager(PROCESSED_VIDEO_DIR)
 
 
 def _capture_and_process(capture: Any, detector: Any, max_width: int) -> bytes | None:
@@ -386,6 +388,53 @@ def live_stream(
             capture.release()
 
     return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=--frame')
+
+
+@app.post('/api/v1/live/hls/start', dependencies=[Depends(rate_limit)])
+def start_hls_stream(
+    url: str = Query(..., description='RTSP/HTTP source URL'),
+    user=Depends(require('admin', 'operator')),
+):
+    if not url.lower().startswith(('rtsp://', 'rtsps://', 'http://', 'https://')):
+        raise HTTPException(422, 'Unsupported live source URL')
+    try:
+        stream = HLS.start(url)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {
+        'session_id': stream.id,
+        'playlist_url': f'/api/v1/live/hls/{stream.id}/index.m3u8?token={stream.token}',
+        'expires_in': 900,
+    }
+
+
+@app.get('/api/v1/live/hls/{session_id}/index.m3u8')
+def hls_playlist(session_id: str, token: str = Query(...)):
+    stream = HLS.get(session_id, token)
+    if stream is None:
+        raise HTTPException(404, 'HLS session not found or expired')
+    playlist = stream.directory / 'index.m3u8'
+    if not playlist.is_file():
+        raise HTTPException(425, 'HLS playlist is still starting')
+    return FileResponse(playlist, media_type='application/vnd.apple.mpegurl', headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/api/v1/live/hls/{session_id}/{segment}')
+def hls_segment(session_id: str, segment: str, token: str = Query(...)):
+    stream = HLS.get(session_id, token)
+    if stream is None or Path(segment).name != segment:
+        raise HTTPException(404, 'HLS session not found')
+    path = (stream.directory / segment).resolve()
+    if path.parent != stream.directory or not path.is_file():
+        raise HTTPException(404, 'HLS segment not found')
+    return FileResponse(path, media_type='video/mp2t', headers={'Cache-Control': 'no-store'})
+
+
+@app.delete('/api/v1/live/hls/{session_id}')
+def stop_hls_stream(session_id: str, token: str = Query(...), user=Depends(require('admin', 'operator'))):
+    if not HLS.stop(session_id, token):
+        raise HTTPException(404, 'HLS session not found')
+    return {'status': 'stopped', 'session_id': session_id}
 
 @app.get('/api/v1/plates', dependencies=[Depends(rate_limit)])
 def list_plates(
