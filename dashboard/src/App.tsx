@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import OverviewPage from './pages/OverviewPage';
 import LivePage from './pages/LivePage';
@@ -34,6 +34,46 @@ const placeholderTitles: Record<string, string> = {
   classes: 'الفئات',
 };
 
+type ErrorBoundaryState = { error: Error | null };
+
+class DashboardErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Dashboard render error', error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div dir="rtl" className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-100">
+          <div className="w-full max-w-xl rounded-2xl border border-rose-500/40 bg-slate-900 p-6 text-center shadow-xl">
+            <h1 className="text-xl font-bold text-rose-300">تعذر تحميل لوحة التحكم</h1>
+            <p className="mt-3 text-sm text-slate-300">
+              حدث خطأ في الواجهة. أعد تحميل الصفحة بعد التأكد من تشغيل Backend على المنفذ 8001.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
+            >
+              إعادة تحميل الصفحة
+            </button>
+            <pre dir="ltr" className="mt-4 overflow-auto rounded-lg bg-slate-950 p-3 text-left text-xs text-rose-200">
+              {this.state.error.message}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [unauthorized, setUnauthorized] = useState(false);
 
@@ -44,7 +84,8 @@ export default function App() {
   }, []);
 
   return (
-    <div dir="rtl" className="flex min-h-screen flex-col bg-slate-950 font-sans text-slate-100">
+    <DashboardErrorBoundary>
+      <div dir="rtl" className="flex min-h-screen flex-col bg-slate-950 font-sans text-slate-100">
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/90 px-5 py-3 shadow-xl backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <NavLink to="/" className="flex items-center gap-3">
@@ -126,6 +167,7 @@ export default function App() {
         <span>جميع الحقوق محفوظة © 2026 - منظومة اليمن فيجن للرؤية الحاسوبية</span>
         <span className="font-mono text-blue-400">v3.0.0-React</span>
       </footer>
-    </div>
+      </div>
+    </DashboardErrorBoundary>
   );
 }

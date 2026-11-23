@@ -23,7 +23,9 @@ export default defineConfig({
     port: 4200,
     proxy: {
       '/api': {
-        target: process.env.YV_BACKEND_TARGET || 'http://127.0.0.1:8000',
+          // The local FastAPI service runs on 8001. Keep the environment
+          // override for deployments, but make the default work out of the box.
+          target: process.env.YV_BACKEND_TARGET || 'http://127.0.0.1:8001',
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {

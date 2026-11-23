@@ -3,7 +3,7 @@
 // address (and key) must be configured on the Settings page.
 const DEFAULT_API_BASE = import.meta.env.DEV
   ? '/api/v1'
-  : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1');
+  : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/v1');
 
 
 export interface Camera {
