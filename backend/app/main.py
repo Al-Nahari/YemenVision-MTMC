@@ -21,6 +21,7 @@ from app.database import Base, SessionLocal, engine, session
 from app.media import media_url, verify_media_request
 from app.models import AuditLog, Camera, DetectionEvent, InferenceJob, ModelVersion, ProcessedVideo, Tracklet, TrafficAggregate
 from app.jobs import video_jobs
+from app.queue import enqueue_job
 from app.schemas import (
     CameraIn,
     CameraUpdate,
@@ -88,6 +89,11 @@ async def lifespan(app: FastAPI):
             if 'plate_text' not in columns:
                 with engine.begin() as connection:
                     connection.execute(text('ALTER TABLE detection_events ADD COLUMN plate_text VARCHAR'))
+        if 'inference_jobs' in tables:
+            columns = {column['name'] for column in inspect(engine).get_columns('inference_jobs')}
+            if 'payload' not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text('ALTER TABLE inference_jobs ADD COLUMN payload JSON'))
     # Register processed video files created before the archive table existed so
     # the dashboard can browse them immediately after an upgrade.
     db = SessionLocal()
@@ -449,7 +455,11 @@ async def upload_video(
     temp_path = None
     total = 0
     try:
-        with tempfile.NamedTemporaryFile(prefix='yv-video-', suffix=suffix, delete=False) as handle:
+        staging_dir = PROCESSED_VIDEO_DIR / '.incoming'
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            prefix='yv-video-', suffix=suffix, dir=staging_dir, delete=False,
+        ) as handle:
             temp_path = Path(handle.name)
             async for chunk in request.stream():
                 total += len(chunk)
@@ -473,9 +483,19 @@ async def upload_video(
             now = datetime.now(timezone.utc)
             db.add(InferenceJob(
                 id=job_id, status='queued', progress=0, camera_id=camera_id,
-                original_name=original_name, created_at=now, updated_at=now,
+                original_name=original_name,
+                payload={'video_path': str(queued_path), 'max_frames': max_frames, 'actor': user['subject']},
+                created_at=now, updated_at=now,
             ))
             db.commit()
+
+            if settings.queue_backend == 'redis' and enqueue_job(job_id):
+                return {
+                    'id': job_id, 'status': 'queued', 'progress': 0,
+                    'camera_id': camera_id, 'original_name': original_name,
+                    'result': None, 'error': None,
+                    'created_at': now.isoformat(), 'updated_at': now.isoformat(),
+                }
 
             def run_job(_job_id: str) -> dict:
                 worker_db = SessionLocal()

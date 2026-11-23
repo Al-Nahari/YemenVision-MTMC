@@ -60,6 +60,9 @@ class Settings:
     api_keys_json: str = os.getenv('API_KEYS_JSON', '{}')
     rate_limit_per_minute: int = _env_int('RATE_LIMIT_PER_MINUTE', 120)
     retention_days: int = _env_int('RETENTION_DAYS', 30)
+    queue_backend: str = os.getenv('YV_QUEUE_BACKEND', 'local').strip().lower()
+    redis_url: str = os.getenv('YV_REDIS_URL', 'redis://localhost:6379/0')
+    redis_queue_name: str = os.getenv('YV_REDIS_QUEUE', 'yemenvision:video-jobs')
 
     models_dir: Path = field(default_factory=_default_models_dir)
     trusted_models_only: bool = _env_bool('YV_TRUSTED_MODELS_ONLY', True)
@@ -94,6 +97,8 @@ class Settings:
     plate_ocr_min_confidence: float = float(os.getenv('YV_PLATE_OCR_MIN_CONFIDENCE', '0.55'))
 
     def __post_init__(self) -> None:
+        if self.queue_backend not in {'local', 'redis'}:
+            raise ValueError("YV_QUEUE_BACKEND must be 'local' or 'redis'")
         if self.blur_mode not in {'plate_region', 'vehicle', 'off'}:
             raise ValueError("YV_PRIVACY_BLUR_MODE must be 'plate_region', 'vehicle', or 'off'")
         if self.blur_plates and self.blur_mode == 'off':

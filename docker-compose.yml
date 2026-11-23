@@ -16,12 +16,40 @@ services:
       YV_PRIVACY_BLUR_PLATES: "true"
       YV_PRIVACY_BLUR_MODE: ${YV_PRIVACY_BLUR_MODE:-plate_region}
       YV_PRIVACY_ALLOW_UNBLURRED: "false"
+      YV_QUEUE_BACKEND: ${YV_QUEUE_BACKEND:-redis}
+      YV_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0
     volumes:
       - ./models:/models:ro
       - ./processed-videos:/app/processed-videos
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: yemenvision-worker
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://traffic:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/traffic
+      API_KEYS_JSON: ${API_KEYS_JSON:?set API_KEYS_JSON}
+      MEDIA_SIGNING_KEY: ${MEDIA_SIGNING_KEY:?set MEDIA_SIGNING_KEY}
+      YV_MODELS_DIR: /models
+      YV_TRUSTED_MODELS_ONLY: "true"
+      YV_QUEUE_BACKEND: redis
+      YV_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0
+    volumes:
+      - ./models:/models:ro
+      - ./processed-videos:/app/processed-videos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   postgres:
