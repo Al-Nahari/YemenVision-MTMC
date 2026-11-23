@@ -224,6 +224,27 @@ export const api = {
     return new URL(path, `${root}/`).toString();
   },
 
+  liveStreamUrl(
+    url: string,
+    cameraId: string | null,
+    maxFps: number = 5,
+    maxWidth: number = 640,
+  ): string {
+    const query = new URLSearchParams();
+    query.set('url', url);
+    query.set('max_fps', String(maxFps));
+    query.set('max_width', String(maxWidth));
+    const key = localStorage.getItem('yv_api_key') || '';
+    if (key) query.set('api_key', key);
+    if (cameraId) query.set('camera_id', cameraId);
+    const root = apiBase().replace(/\/api\/v1\/?$/, '');
+    const path = `/live/stream?${query.toString()}`;
+    if (!root) {
+      return path.startsWith('/') ? path : `/${path}`;
+    }
+    return new URL(path, `${root}/`).toString();
+  },
+
   uploadVideo(
     file: File,
     cameraId: string,

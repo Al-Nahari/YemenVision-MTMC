@@ -254,9 +254,9 @@ def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: s
             names = result.names
             class_names = [str(names.get(class_id, class_id)) for class_id in classes]
 
-            # OCR uses the clean crop; blurring (when explicitly enabled) is
-            # applied only to the video frames, never to the stored log data.
-            ocr_source = frame.copy() if settings.plate_ocr_enabled and settings.blur_plates else frame
+            # Copy the clean frame before annotations or blur so OCR never sees
+            # boxes/labels drawn over the plate region.
+            ocr_source = frame.copy() if settings.plate_ocr_enabled else frame
             if settings.blur_plates:
                 redact_frame(frame, coords)
             annotated = _annotate(frame, coords, ids, confs, class_names)
@@ -264,24 +264,47 @@ def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: s
 
             timestamp = datetime.now(timezone.utc)
             frame_index = frames - 1
-            ocr_calls = 0
             ocr_ready = engine_status()['available']
+
+            # Choose a bounded set of tracks for OCR this frame. New tracks are
+            # tried first, and each track gets at most two attempts, so a busy
+            # scene cannot starve the last vehicles while CPU stays capped.
+            ocr_targets: set[int] = set()
+            if settings.plate_ocr_enabled:
+                current_ids = {tid for tid in ids if tid >= 0}
+                for track_id, box, class_name in zip(ids, coords, class_names):
+                    if track_id < 0:
+                        continue
+                    track_ids.setdefault(track_id, {
+                        'start': timestamp, 'end': timestamp, 'class_name': class_name,
+                        'box': box, 'frames_tracked': 0, 'plate_text': None,
+                        'plate_confidence': 0.0, 'plate_status': 'not_read',
+                        'ocr_attempts': 0,
+                    })
+                pending = [
+                    tid for tid in current_ids
+                    if not track_ids[tid].get('plate_text')
+                    and track_ids[tid].get('ocr_attempts', 0) < 2
+                ]
+                pending.sort(key=lambda tid: (
+                    track_ids[tid]['ocr_attempts'], -track_ids[tid]['frames_tracked'],
+                ))
+                ocr_targets = set(pending[:settings.plate_ocr_max_per_frame])
+
             for track_id, box, confidence, class_id, class_name in zip(ids, coords, confs, classes, class_names):
                 events += 1
                 info = track_ids.setdefault(track_id, {
                     'start': timestamp, 'end': timestamp, 'class_name': class_name,
                     'box': box, 'frames_tracked': 0, 'plate_text': None,
                     'plate_confidence': 0.0, 'plate_status': 'not_read',
+                    'ocr_attempts': 0,
                 })
-                is_new_track = info['frames_tracked'] == 0
                 info['end'] = timestamp
                 info['box'] = box
                 info['frames_tracked'] += 1
                 plate = None
-                if (settings.plate_ocr_enabled
-                        and ocr_calls < settings.plate_ocr_max_per_frame
-                        and (is_new_track or frame_index % settings.plate_ocr_interval_frames == 0)):
-                    ocr_calls += 1
+                if track_id in ocr_targets:
+                    info['ocr_attempts'] += 1
                     plate = read_plate(ocr_source, box, settings.plate_ocr_min_confidence)
                     if not ocr_ready:
                         ocr_ready = engine_status()['available']

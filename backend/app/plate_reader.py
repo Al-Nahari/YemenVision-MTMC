@@ -81,8 +81,9 @@ def read_plate(frame: Any, box: list[float], min_confidence: float = 0.55) -> di
     """Return the best plate reading from a vehicle crop, or ``None``.
 
     ``frame`` is a BGR OpenCV array and ``box`` is ``[x1, y1, x2, y2]`` in the
-    same coordinate space. The lower part of the box is tried first; the full
-    box is a bounded fallback for plates that sit higher on the vehicle.
+    same coordinate space. The lower part of the box is tried first, then the
+    full box, then a bounded strip below it for plates that a detector excludes
+    from the vehicle box.
     """
     engine = _get_engine()
     if engine is None:
@@ -96,9 +97,14 @@ def read_plate(frame: Any, box: list[float], min_confidence: float = 0.55) -> di
     if x2 - x1 < 12 or y2 - y1 < 6:
         return None
 
-    plate_top = y1 + int(0.45 * (y2 - y1))
-    crops = [frame[plate_top:y2, x1:x2]]
-    crops.append(frame[y1:y2, x1:x2])
+    box_height = y2 - y1
+    plate_top = y1 + int(0.45 * box_height)
+    lower_bottom = min(height, y2 + int(1.5 * box_height))
+    crops = [
+        frame[plate_top:y2, x1:x2],
+        frame[y1:y2, x1:x2],
+        frame[y1:lower_bottom, x1:x2],
+    ]
     for crop in crops:
         if crop.size == 0:
             continue

@@ -1,14 +1,18 @@
+import asyncio
+import json
 import os
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -27,10 +31,44 @@ from app.schemas import (
     ModelIn,
 )
 from app.security import rate_limit, require
-from app.services import audit, ingest_event, process_live_frame, process_uploaded_video
+from app.services import ModelManager, _annotate, audit, ingest_event, process_live_frame, process_uploaded_video
 
 PROCESSED_VIDEO_DIR = Path(os.getenv('PROCESSED_VIDEO_DIR', 'processed-videos')).resolve()
 PROCESSED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _capture_and_process(capture: Any, detector: Any, max_width: int) -> bytes | None:
+    """Read one RTSP frame, run detection, annotate, and return JPEG bytes.
+
+    Runs in a worker thread so the event loop stays free between frames.
+    Tracking is intentionally disabled here (predict, not track/persist) because
+    the detector is a shared singleton; this keeps the live preview CPU-safe and
+    free of cross-stream state corruption.
+    """
+    import cv2
+
+    ok, frame = capture.read()
+    if not ok:
+        return None
+    height, width = frame.shape[:2]
+    if width > max_width:
+        ratio = max_width / width
+        frame = cv2.resize(frame, (max_width, max(1, int(height * ratio))))
+    with ModelManager.inference_lock():
+        results = detector(frame, conf=0.25, iou=0.45, verbose=False)[0]
+    boxes = results.boxes
+    if boxes is None or len(boxes) == 0:
+        annotated = frame
+    else:
+        coords = boxes.xyxy.cpu().tolist()
+        confs = boxes.conf.cpu().tolist()
+        classes = boxes.cls.int().cpu().tolist()
+        names = results.names
+        class_names = [str(names.get(class_id, class_id)) for class_id in classes]
+        annotated = _annotate(frame, coords, [-1] * len(coords), confs, class_names)
+    ret, buf = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    return buf.tobytes() if ret else None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -241,6 +279,70 @@ def delete_video(video_id: str, user=Depends(require('admin', 'operator')), db: 
     db.delete(row)
     db.commit()
     return {'status': 'deleted', 'video_id': video_id}
+
+
+@app.get('/api/v1/live/stream', dependencies=[Depends(rate_limit)])
+def live_stream(
+    url: str = Query(..., description='RTSP/HTTP stream URL'),
+    camera_id: str | None = Query(None, description='Optional camera row to validate/link'),
+    max_fps: float = Query(5.0, ge=0.5, le=30, description='Maximum processed frames per second'),
+    max_width: int = Query(640, ge=160, le=1280, description='Max inference width (CPU safety)'),
+    api_key: str | None = Query(None, description='Fallback API key for  tag access'),
+    x_api_key: str | None = Header(default=None),
+    db: Session = Depends(session),
+):
+    """MJPEG live preview for an RTSP/HTTP stream with on-the-fly detection.
+
+    The stream is served as ``multipart/x-mixed-replace`` so a plain
+    ``<img src>`` can display it. Each viewer opens its own capture; keep
+    ``max_fps`` low on weak machines.
+    """
+    key = x_api_key or api_key
+    if not key:
+        raise HTTPException(401, 'Missing API key')
+    try:
+        users = json.loads(settings.api_keys_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, 'API key configuration is invalid') from exc
+    identity = users.get(key)
+    if not isinstance(identity, dict) or not identity.get('subject') or not isinstance(identity.get('roles'), list):
+        raise HTTPException(401, 'Invalid API key')
+    if camera_id:
+        camera = db.get(Camera, camera_id)
+        if not camera:
+            raise HTTPException(404, 'Camera not found')
+    try:
+        detector = ModelManager.get_detector()
+    except Exception as exc:
+        raise HTTPException(503, f'Detector unavailable: {exc}')
+
+    async def generate() -> Any:
+        import cv2
+
+        capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        try:
+            if not capture.isOpened():
+                yield b'--frame\r\nContent-Type: text/plain\r\n\r\nCannot open RTSP stream\r\n'
+                return
+            min_interval = 1.0 / max_fps
+            last_yield = 0.0
+            while True:
+                now = time.monotonic()
+                if now - last_yield < min_interval:
+                    await asyncio.sleep(0.01)
+                    continue
+                jpeg = await asyncio.to_thread(_capture_and_process, capture, detector, max_width)
+                last_yield = now
+                if jpeg is None:
+                    await asyncio.sleep(0.05)
+                    continue
+                yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n'
+        except asyncio.CancelledError:
+            pass
+        finally:
+            capture.release()
+
+    return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=--frame')
 
 @app.get('/api/v1/plates', dependencies=[Depends(rate_limit)])
 def list_plates(

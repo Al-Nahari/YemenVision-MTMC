@@ -90,7 +90,6 @@ class Settings:
     # biggest win on weak machines; OCR is throttled and lazy-loaded.
     max_infer_width: int = _env_int('YV_MAX_INFER_WIDTH', 960)
     plate_ocr_enabled: bool = _env_bool('YV_PLATE_OCR_ENABLED', True)
-    plate_ocr_interval_frames: int = _env_int('YV_PLATE_OCR_INTERVAL', 30)
     plate_ocr_max_per_frame: int = _env_int('YV_PLATE_OCR_MAX_PER_FRAME', 4)
     plate_ocr_min_confidence: float = float(os.getenv('YV_PLATE_OCR_MIN_CONFIDENCE', '0.55'))
 
@@ -105,8 +104,8 @@ class Settings:
             raise ValueError('YV_MAX_UPLOAD_BYTES must be positive')
         if self.max_infer_width < 160:
             raise ValueError('YV_MAX_INFER_WIDTH must be at least 160')
-        if self.plate_ocr_interval_frames < 1 or self.plate_ocr_max_per_frame < 1:
-            raise ValueError('plate OCR interval and per-frame limit must be positive')
+        if self.plate_ocr_max_per_frame < 1:
+            raise ValueError('plate OCR per-frame limit must be positive')
         if self.media_url_ttl_seconds < 1:
             raise ValueError('MEDIA_URL_TTL_SECONDS must be positive')
         if not self.media_signing_key:

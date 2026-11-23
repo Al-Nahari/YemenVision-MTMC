@@ -29,6 +29,14 @@ export default function LivePage() {
   const [videoError, setVideoError] = useState(false);
   const [error, setError] = useState('');
 
+  // بث حي عبر RTSP/HTTP (مجدد عن مسار الرفع والمعالجة الأساسي).
+  const [rtspUrl, setRtspUrl] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [streamUrl, setStreamUrl] = useState('');
+  const [streamError, setStreamError] = useState('');
+  const [selectedStreamCamera, setSelectedStreamCamera] = useState('');
+  const [streamFps, setStreamFps] = useState(5);
+
   useEffect(() => {
     if (selectedCamera && cameras.length > 0 && !cameras.some((camera) => camera.id === selectedCamera)) {
       setSelectedCamera('');
@@ -73,6 +81,28 @@ export default function LivePage() {
     } finally {
       setIsInferencing(false);
     }
+  };
+
+  const startStream = () => {
+    setError('');
+    setStreamError('');
+    const url = rtspUrl.trim();
+    if (!url) {
+      setStreamError('يرجى إدخال رابط البث (RTSP/HTTP).');
+      return;
+    }
+    try {
+      setStreamUrl(api.liveStreamUrl(url, selectedStreamCamera || null, streamFps));
+      setStreaming(true);
+    } catch {
+      setStreamError('تعذّر إنشاء رابط البث. تحقق من تشغيل الخادم.');
+    }
+  };
+
+  const stopStream = () => {
+    setStreaming(false);
+    setStreamUrl('');
+    setStreamError('');
   };
 
   const effectiveCameraId = selectedCamera || (selectedVideo ? cameraIdForVideo(selectedVideo) : '');
@@ -240,6 +270,124 @@ export default function LivePage() {
                   <p className="truncate font-bold text-cyan-400">{result.video_id}</p>
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* بث حي RTSP/HTTP */}
+        <div className="space-y-6 rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-xl">
+          <div className="flex flex-col justify-between gap-4 border-b border-slate-800 pb-4 md:flex-row md:items-center">
+            <div>
+              <h3 className="text-lg font-bold text-white">البث الحي من كاميرا RTSP/HTTP</h3>
+              <p className="mt-1 text-sm text-slate-400">
+                عرض مباشر للمعالجة على الإطارات الواردة من رابط بث (RTSP/HTTP). يفتح
+                كل مشاهد تقاطعاً مستقلاً، ويُحفظ استهلاك المعالج عبر تحديد معدل
+                الإطارات وتصغير العرض (الافتراضي 5 إطارات/ثانية، العرض الأقصى 640
+                بكسل).
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="space-y-2 md:col-span-2">
+              <label htmlFor="rtsp-url" className="text-xs font-semibold text-slate-400">
+                رابط البث (rtsp:// أو http://):
+              </label>
+              <input
+                id="rtsp-url"
+                type="text"
+                dir="ltr"
+                placeholder="rtsp://example:1935/app/stream"
+                value={rtspUrl}
+                onChange={(event) => setRtspUrl(event.target.value)}
+                className="field w-full text-sm text-slate-300"
+              />
+              {streamError && <p className="text-xs text-rose-400">{streamError}</p>}
+            </div>
+            <div className="pt-5 md:col-span-1">
+              <label htmlFor="stream-camera" className="text-xs font-semibold text-slate-400">
+                كاميرا مرتبطة (اختياري):
+              </label>
+              <select
+                id="stream-camera"
+                aria-label="اختر كاميرا للبث"
+                value={selectedStreamCamera}
+                onChange={(event) => setSelectedStreamCamera(event.target.value)}
+                className="field w-full text-sm text-slate-300"
+              >
+                <option value="">بدون كاميرا مرتبطة</option>
+                {cameras.map((camera) => (
+                  <option key={camera.id} value={camera.id}>
+                    {camera.zone || camera.id} ({camera.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="pt-5 md:col-span-1">
+              <label htmlFor="stream-fps" className="text-xs font-semibold text-slate-400">
+                أقصى معدل إطارات (آمن على المعالج):
+              </label>
+              <input
+                id="stream-fps"
+                type="number"
+                dir="ltr"
+                min={1}
+                max={30}
+                step={1}
+                value={streamFps}
+                onChange={(event) =>
+                  setStreamFps(Math.min(30, Math.max(1, Number(event.target.value) || 5)))
+                }
+                className="field w-full text-center"
+              />
+            </div>
+            <div className="pt-5 md:col-span-1 flex items-end">
+              {streaming ? (
+                <button
+                  type="button"
+                  onClick={stopStream}
+                  className="w-full rounded-xl bg-rose-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-rose-600/30 transition hover:bg-rose-500"
+                >
+                  إيقاف البث
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startStream}
+                  disabled={!rtspUrl.trim()}
+                  className="w-full rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  تشغيل البث المباشر
+                </button>
+              )}
+            </div>
+          </div>
+
+          {streaming ? (
+            <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-xl h-[360px]">
+              <div className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-900/80 px-3 py-1 backdrop-blur-md">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-bold text-white">البث يعمل</span>
+              </div>
+              <div className="bg-black w-full h-full">
+                <img
+                  src={streamUrl}
+                  alt="البث المباشر"
+                  className="w-full h-full object-contain bg-black"
+                  onError={() =>
+                    setStreamError('تعذّر عرض البث. تأكد من أن الرابط صالح والخادم يعمل.')
+                  }
+                />
+              </div>
+              {streamError && (
+                <p className="mt-2 text-xs text-rose-400">{streamError}</p>
+              )}
+            </div>
+          ) : (
+            <div className="flex h-[360px] items-center justify-center bg-gradient-to-bl from-slate-900 via-slate-950 to-blue-950 rounded-2xl border border-slate-800">
+              <p className="text-xs font-mono text-slate-400 text-center p-6">
+                لا يوجد بث مباشر فعّال — أدخل رابط RTSP واضغط "تشغيل البث المباشر".
+              </p>
             </div>
           )}
         </div>
