@@ -126,18 +126,26 @@ function authHeaders(): Record<string, string> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
   let response: Response;
   try {
     response = await fetch(`${apiBase()}${path}`, {
       ...init,
+      signal: init.signal || controller.signal,
       headers: {
         ...authHeaders(),
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
       },
     });
-  } catch {
-    throw new ApiError(0, 'تعذّر الاتصال بالخادم. تحقق من تشغيل الـ Backend.');
+  } catch (error) {
+    const message = error instanceof DOMException && error.name === 'AbortError'
+      ? 'انتهت مهلة الاتصال بالخادم. تحقق من تشغيل Backend.'
+      : 'تعذّر الاتصال بالخادم. تحقق من تشغيل Backend.';
+    throw new ApiError(0, message);
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   if (response.status === 401) {

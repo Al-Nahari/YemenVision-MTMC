@@ -128,7 +128,9 @@ app.add_middleware(
 )
 
 @app.get('/health')
+@app.get('/api/v1/health')
 def health():
+    """Liveness endpoint for local development, Docker and reverse proxies."""
     return {'status': 'ok', 'service': 'traffic-platform', 'version': '0.2.0'}
 
 

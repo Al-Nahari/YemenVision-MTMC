@@ -1,14 +1,18 @@
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import OverviewPage from './pages/OverviewPage';
-import LivePage from './pages/LivePage';
-import CamerasPage from './pages/CamerasPage';
-import VideosPage from './pages/VideosPage';
-import PlatesPage from './pages/PlatesPage';
-import AnalyticsPage from './pages/AnalyticsPage';
-import ModelsPage from './pages/ModelsPage';
-import SettingsPage from './pages/SettingsPage';
-import PlaceholderPage from './pages/PlaceholderPage';
+
+// Route-level code splitting keeps the initial dashboard bundle small. Heavy
+// pages (archive, analytics and live processing) are downloaded only when
+// opened, which matters on weak machines and slow local networks.
+const OverviewPage = lazy(() => import('./pages/OverviewPage'));
+const LivePage = lazy(() => import('./pages/LivePage'));
+const CamerasPage = lazy(() => import('./pages/CamerasPage'));
+const VideosPage = lazy(() => import('./pages/VideosPage'));
+const PlatesPage = lazy(() => import('./pages/PlatesPage'));
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
+const ModelsPage = lazy(() => import('./pages/ModelsPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage'));
 
 const navigation = [
   { path: '/', label: 'الرئيسية' },
@@ -147,20 +151,28 @@ export default function App() {
       )}
 
       <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-6">
-        <Routes>
-          <Route path="/" element={<OverviewPage />} />
-          <Route path="/live" element={<LivePage />} />
-          <Route path="/cameras" element={<CamerasPage />} />
-          <Route path="/videos" element={<VideosPage />} />
-          <Route path="/plates" element={<PlatesPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/models" element={<ModelsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          {Object.entries(placeholderTitles).map(([path, title]) => (
-            <Route key={path} path={`/${path}`} element={<PlaceholderPage title={title} />} />
-          ))}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense
+          fallback={
+            <div className="flex min-h-64 items-center justify-center text-sm text-slate-400" role="status">
+              جاري تحميل الصفحة…
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/" element={<OverviewPage />} />
+            <Route path="/live" element={<LivePage />} />
+            <Route path="/cameras" element={<CamerasPage />} />
+            <Route path="/videos" element={<VideosPage />} />
+            <Route path="/plates" element={<PlatesPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/models" element={<ModelsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            {Object.entries(placeholderTitles).map(([path, title]) => (
+              <Route key={path} path={`/${path}`} element={<PlaceholderPage title={title} />} />
+            ))}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </main>
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 px-5 py-4 text-center text-xs text-slate-500">
