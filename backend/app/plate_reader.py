@@ -52,29 +52,7 @@ def _normalize(text: str) -> str | None:
     return cleaned
 
 
-def read_plate(frame: Any, box: list[float], min_confidence: float = 0.55) -> dict[str, Any] | None:
-    """Return the best plate reading from a vehicle crop, or ``None``.
-
-    ``frame`` is a BGR OpenCV array and ``box`` is ``[x1, y1, x2, y2]`` in the
-    same coordinate space. The caller must throttle calls; this function only
-    guards thread safety and result validation.
-    """
-    engine = _get_engine()
-    if engine is None:
-        return None
-    import cv2
-
-    x1, y1, x2, y2 = (int(round(value)) for value in box)
-    height, width = frame.shape[:2]
-    # Plates sit in the lower part of a vehicle bounding box.
-    plate_top = y1 + int(0.55 * (y2 - y1))
-    x1, x2 = max(0, x1), min(width, x2)
-    plate_top, y2 = max(0, plate_top), min(height, y2)
-    if x2 - x1 < 12 or y2 - plate_top < 6:
-        return None
-    crop = frame[plate_top:y2, x1:x2]
-    crop = cv2.resize(crop, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
-
+def _ocr_crop(engine: Any, crop: Any, min_confidence: float) -> dict[str, Any] | None:
     with _LOCK:
         try:
             output = engine(crop)
@@ -84,7 +62,6 @@ def read_plate(frame: Any, box: list[float], min_confidence: float = 0.55) -> di
     candidates = output[0] if isinstance(output, tuple) else output
     if not candidates:
         return None
-
     best: dict[str, Any] | None = None
     for candidate in candidates:
         try:
@@ -98,3 +75,35 @@ def read_plate(frame: Any, box: list[float], min_confidence: float = 0.55) -> di
         if best is None or score > best['confidence']:
             best = {'text': text, 'confidence': round(score, 3), 'engine': 'rapidocr'}
     return best
+
+
+def read_plate(frame: Any, box: list[float], min_confidence: float = 0.55) -> dict[str, Any] | None:
+    """Return the best plate reading from a vehicle crop, or ``None``.
+
+    ``frame`` is a BGR OpenCV array and ``box`` is ``[x1, y1, x2, y2]`` in the
+    same coordinate space. The lower part of the box is tried first; the full
+    box is a bounded fallback for plates that sit higher on the vehicle.
+    """
+    engine = _get_engine()
+    if engine is None:
+        return None
+    import cv2
+
+    x1, y1, x2, y2 = (int(round(value)) for value in box)
+    height, width = frame.shape[:2]
+    x1, x2 = max(0, x1), min(width, x2)
+    y1, y2 = max(0, y1), min(height, y2)
+    if x2 - x1 < 12 or y2 - y1 < 6:
+        return None
+
+    plate_top = y1 + int(0.45 * (y2 - y1))
+    crops = [frame[plate_top:y2, x1:x2]]
+    crops.append(frame[y1:y2, x1:x2])
+    for crop in crops:
+        if crop.size == 0:
+            continue
+        enlarged = cv2.resize(crop, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
+        reading = _ocr_crop(engine, enlarged, min_confidence)
+        if reading:
+            return reading
+    return None

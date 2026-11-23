@@ -52,6 +52,10 @@ async def lifespan(app: FastAPI):
     # the dashboard can browse them immediately after an upgrade.
     db = SessionLocal()
     try:
+        for stale in db.scalars(select(ProcessedVideo)).all():
+            if not (PROCESSED_VIDEO_DIR / stale.file_name).is_file():
+                db.delete(stale)
+        db.commit()
         known = set(db.scalars(select(ProcessedVideo.file_name)).all())
         for path in PROCESSED_VIDEO_DIR.iterdir():
             if not path.is_file() or path.suffix.lower() not in {'.webm', '.mp4'}:
@@ -216,12 +220,12 @@ def list_videos(
             | ProcessedVideo.file_name.like(term)
         )
     rows = db.scalars(q.order_by(ProcessedVideo.created_at.desc()).offset(offset).limit(limit)).all()
-    return [_video_out(row) for row in rows]
+    return [_video_out(row) for row in rows if (PROCESSED_VIDEO_DIR / row.file_name).is_file()]
 
 @app.get('/api/v1/videos/{video_id}', dependencies=[Depends(rate_limit)])
 def get_video(video_id: str, user=Depends(require('admin', 'operator', 'analyst')), db: Session = Depends(session)):
     row = db.get(ProcessedVideo, video_id)
-    if not row:
+    if not row or not (PROCESSED_VIDEO_DIR / row.file_name).is_file():
         raise HTTPException(404, 'Video not found')
     return _video_out(row)
 

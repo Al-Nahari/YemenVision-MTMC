@@ -95,3 +95,8 @@ dist/
 *.swo
 .DS_Store
 Thumbs.db
+backend/processed-videos/
+*.mp4
+*.avi
+*.mkv
+*.mov
