@@ -43,9 +43,12 @@ class HlsManager:
         ]
         try:
             process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, OSError) as exc:
             shutil.rmtree(directory, ignore_errors=True)
-            raise RuntimeError('FFmpeg is not installed or is not available on PATH') from exc
+            raise RuntimeError(
+                'FFmpeg is unavailable or incompatible with this operating system. '
+                'Install the win64 GPL static build for AMD64/Intel Windows.'
+            ) from exc
         session = HlsSession(session_id, token, directory, process, time.time())
         with self.lock:
             self.sessions[session_id] = session

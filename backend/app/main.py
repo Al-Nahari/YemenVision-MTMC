@@ -142,7 +142,11 @@ app.add_middleware(
 @app.get('/api/v1/health')
 def health():
     """Liveness endpoint for local development, Docker and reverse proxies."""
-    return {'status': 'ok', 'service': 'traffic-platform', 'version': '0.2.0'}
+    import shutil
+    return {
+        'status': 'ok', 'service': 'traffic-platform', 'version': '0.2.0',
+        'ffmpeg_available': shutil.which('ffmpeg') is not None,
+    }
 
 
 @app.get('/api/v1/media/{name}')
