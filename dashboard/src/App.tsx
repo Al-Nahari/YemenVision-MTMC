@@ -12,7 +12,6 @@ const PlatesPage = lazy(() => import('./pages/PlatesPage'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const ModelsPage = lazy(() => import('./pages/ModelsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage'));
 
 const navigation = [
   { path: '/', label: 'الرئيسية' },
@@ -22,21 +21,8 @@ const navigation = [
   { path: '/plates', label: 'اللوحات' },
   { path: '/analytics', label: 'التحليلات' },
   { path: '/models', label: 'النماذج' },
-  { path: '/reports', label: 'التقارير' },
-  { path: '/health', label: 'حالة النظام' },
   { path: '/settings', label: 'الإعدادات' },
-  { path: '/audit', label: 'سجل التدقيق' },
-  { path: '/users', label: 'المستخدمون' },
-  { path: '/classes', label: 'الفئات' },
 ];
-
-const placeholderTitles: Record<string, string> = {
-  reports: 'التقارير',
-  health: 'حالة النظام',
-  audit: 'سجل التدقيق',
-  users: 'المستخدمون',
-  classes: 'الفئات',
-};
 
 type ErrorBoundaryState = { error: Error | null };
 
@@ -171,9 +157,6 @@ export default function App() {
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/models" element={<ModelsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            {Object.entries(placeholderTitles).map(([path, title]) => (
-              <Route key={path} path={`/${path}`} element={<PlaceholderPage title={title} />} />
-            ))}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
