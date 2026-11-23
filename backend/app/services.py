@@ -185,7 +185,13 @@ def _annotate(frame: Any, boxes: list[list[float]], track_ids: list[int],
     return annotated
 
 
-def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: str, output_path: Path) -> InferenceVideoResponse:
+def process_uploaded_video(
+    db: Session,
+    request: InferenceVideoRequest,
+    actor: str,
+    output_path: Path,
+    progress_callback: Any | None = None,
+) -> InferenceVideoResponse:
     """Run detector/tracker on an uploaded video and persist reviewable output.
 
     Plate numbers are read from throttled vehicle crops and stored in the event
@@ -242,6 +248,8 @@ def process_uploaded_video(db: Session, request: InferenceVideoRequest, actor: s
                     iou=request.iou_threshold, verbose=False,
                 )[0]
             frames += 1
+            if progress_callback and frames % 5 == 0:
+                progress_callback(frames, max_frames)
             boxes = result.boxes
             if boxes is None or len(boxes) == 0:
                 writer.write(frame)

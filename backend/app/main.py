@@ -4,7 +4,7 @@ import os
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import Base, SessionLocal, engine, session
 from app.media import media_url, verify_media_request
-from app.models import AuditLog, Camera, DetectionEvent, ModelVersion, ProcessedVideo, Tracklet, TrafficAggregate
+from app.models import AuditLog, Camera, DetectionEvent, InferenceJob, ModelVersion, ProcessedVideo, Tracklet, TrafficAggregate
 from app.jobs import video_jobs
 from app.schemas import (
     CameraIn,
@@ -469,16 +469,47 @@ async def upload_video(
             # The worker owns cleanup of the temporary input and its DB session.
             queued_path = temp_path
             temp_path = None
+            job_id = f'job_{uuid4().hex[:16]}'
+            now = datetime.now(timezone.utc)
+            db.add(InferenceJob(
+                id=job_id, status='queued', progress=0, camera_id=camera_id,
+                original_name=original_name, created_at=now, updated_at=now,
+            ))
+            db.commit()
 
             def run_job(_job_id: str) -> dict:
                 worker_db = SessionLocal()
                 output_path = PROCESSED_VIDEO_DIR / f'{uuid4().hex}.webm'
                 try:
-                    result = process_uploaded_video(worker_db, body, user['subject'], output_path)
-                    return result.model_dump(mode='json')
+                    def report_progress(frames: int, total: int | None) -> None:
+                        progress = round((frames / total) * 100) if total else 1
+                        video_jobs.update_progress(_job_id, progress)
+                        row = worker_db.get(InferenceJob, _job_id)
+                        if row:
+                            row.status = 'running'
+                            row.progress = max(1, min(99, progress))
+                            row.updated_at = datetime.now(timezone.utc)
+                            worker_db.commit()
+
+                    result = process_uploaded_video(
+                        worker_db, body, user['subject'], output_path,
+                        progress_callback=report_progress,
+                    )
+                    payload = result.model_dump(mode='json')
+                    row = worker_db.get(InferenceJob, _job_id)
+                    if row:
+                        row.status, row.progress, row.result = 'completed', 100, payload
+                        row.updated_at = datetime.now(timezone.utc)
+                        worker_db.commit()
+                    return payload
                 except Exception:
                     output_path.unlink(missing_ok=True)
                     worker_db.rollback()
+                    row = worker_db.get(InferenceJob, _job_id)
+                    if row:
+                        row.status, row.progress, row.error = 'failed', 100, 'Video processing failed'
+                        row.updated_at = datetime.now(timezone.utc)
+                        worker_db.commit()
                     raise
                 finally:
                     worker_db.close()
@@ -513,9 +544,21 @@ def get_inference_job(
     user=Depends(require('admin', 'operator', 'analyst')),
 ):
     job = video_jobs.get(job_id)
-    if job is None:
-        raise HTTPException(404, 'Inference job not found')
-    return job.public()
+    if job is not None:
+        return job.public()
+    db = SessionLocal()
+    try:
+        row = db.get(InferenceJob, job_id)
+        if row is None:
+            raise HTTPException(404, 'Inference job not found')
+        return {
+            'id': row.id, 'status': row.status, 'progress': row.progress,
+            'camera_id': row.camera_id, 'original_name': row.original_name,
+            'result': row.result, 'error': row.error,
+            'created_at': row.created_at.isoformat(), 'updated_at': row.updated_at.isoformat(),
+        }
+    finally:
+        db.close()
 
 @app.post('/api/v1/inference/frame', response_model=InferenceFrameResponse, status_code=200, dependencies=[Depends(rate_limit)])
 def infer_frame(

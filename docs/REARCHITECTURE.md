@@ -40,7 +40,8 @@
 
 1. **المرحلة الأولى:** تقسيم تحميل الواجهة، timeout موحد للـ API، وإعدادات Backend ثابتة.
 2. **المرحلة الثانية (منفذة):** Job model (`queued/running/completed/failed`) مع worker محلي واحد وواجهة انتظار progress؛ يبقى المسار المتزامن متاحاً للتوافق.
-3. **مرحلة التوسع:** Redis queue + workers متعددة، PostgreSQL، وMinIO.
+3. **المرحلة الثالثة (منفذة جزئياً):** حفظ Jobs في جدول `inference_jobs` وتحديث progress أثناء قراءة الإطارات، مع fallback إلى السجل المحلي عند إعادة تشغيل API.
+4. **مرحلة التوسع:** Redis queue + workers متعددة، PostgreSQL، وMinIO.
 4. **الإنتاج:** FFmpeg/WebRTC للبث، Prometheus metrics، structured logs، health/readiness probes، وCI/CD.
 
 ## قرار مهم
