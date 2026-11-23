@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,45 @@ PROCESSED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 HLS = HlsManager(PROCESSED_VIDEO_DIR)
 
 
-def _capture_and_process(capture: Any, detector: Any, max_width: int) -> bytes | None:
+def _run_hls_detection(source: str, camera_id: str, stop_event: Any) -> None:
+    """Analyze HLS source frames in memory and persist events only.
+
+    FFmpeg creates the browser playlist; this independent low-rate reader is
+    deliberately never written to disk, so live sessions cannot create video
+    artifacts while still producing DetectionEvent rows.
+    """
+    import cv2
+    from datetime import datetime, timezone
+
+    db = SessionLocal()
+    capture = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+    frame_index = 0
+    try:
+        while not stop_event.is_set() and capture.isOpened():
+            processed = _capture_and_process(capture, ModelManager.get_detector(), 640)
+            if processed:
+                _, detections = processed
+                if detections:
+                    now = datetime.now(timezone.utc)
+                    for detection in detections:
+                        db.add(DetectionEvent(
+                            id=f'evt_{uuid4().hex[:16]}', camera_id=camera_id,
+                            occurred_at=now, payload={
+                                'event_type': 'live_detection', 'frame_index': frame_index,
+                                'transport': 'hls', **detection,
+                            },
+                        ))
+                    db.commit()
+                frame_index += 1
+            stop_event.wait(0.5)
+    except Exception:
+        db.rollback()
+    finally:
+        capture.release()
+        db.close()
+
+
+def _capture_and_process(capture: Any, detector: Any, max_width: int) -> tuple[bytes, list[dict[str, Any]]] | None:
     """Read one RTSP frame, run detection, annotate, and return JPEG bytes.
 
     Runs in a worker thread so the event loop stays free between frames.
@@ -63,6 +101,7 @@ def _capture_and_process(capture: Any, detector: Any, max_width: int) -> bytes |
     with ModelManager.inference_lock():
         results = detector(frame, conf=0.25, iou=0.45, verbose=False)[0]
     boxes = results.boxes
+    detections: list[dict[str, Any]] = []
     if boxes is None or len(boxes) == 0:
         annotated = frame
     else:
@@ -71,9 +110,13 @@ def _capture_and_process(capture: Any, detector: Any, max_width: int) -> bytes |
         classes = boxes.cls.int().cpu().tolist()
         names = results.names
         class_names = [str(names.get(class_id, class_id)) for class_id in classes]
+        detections = [
+            {'box': box, 'confidence': float(conf), 'class_id': int(class_id), 'class_name': class_name}
+            for box, conf, class_id, class_name in zip(coords, confs, classes, class_names)
+        ]
         annotated = _annotate(frame, coords, [-1] * len(coords), confs, class_names)
     ret, buf = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
-    return buf.tobytes() if ret else None
+    return (buf.tobytes(), detections) if ret else None
 
 
 @asynccontextmanager
@@ -307,6 +350,7 @@ def live_stream(
     camera_id: str | None = Query(None, description='Optional camera row to validate/link'),
     max_fps: float = Query(5.0, ge=0.5, le=30, description='Maximum processed frames per second'),
     max_width: int = Query(640, ge=160, le=1280, description='Max inference width (CPU safety)'),
+    persist_results: bool = Query(True, description='Persist detections without saving video'),
     api_key: str | None = Query(None, description='Fallback API key for  tag access'),
     x_api_key: str | None = Header(default=None),
     db: Session = Depends(session),
@@ -338,6 +382,10 @@ def live_stream(
 
     async def generate() -> Any:
         import cv2
+        from datetime import datetime, timezone
+
+        result_db = SessionLocal() if persist_results and camera_id else None
+        frame_index = 0
 
         # Create the RTSP capture in a worker thread with a hard timeout so an
         # unreachable stream cannot block the event loop forever.
@@ -374,7 +422,7 @@ def live_stream(
                     await asyncio.sleep(0.01)
                     continue
                 try:
-                    jpeg = await asyncio.wait_for(
+                    processed = await asyncio.wait_for(
                         asyncio.to_thread(_capture_and_process, capture, detector, max_width),
                         timeout=8.0,
                     )
@@ -382,14 +430,29 @@ def live_stream(
                     yield b'--frame\r\nContent-Type: text/plain\r\n\r\nFrame read timed out\r\n'
                     continue
                 last_yield = now
-                if jpeg is None:
+                if processed is None:
                     await asyncio.sleep(0.05)
                     continue
+                jpeg, detections = processed
+                if result_db and detections:
+                    now = datetime.now(timezone.utc)
+                    for detection in detections:
+                        result_db.add(DetectionEvent(
+                            id=f'evt_{uuid4().hex[:16]}', camera_id=camera_id,
+                            occurred_at=now, payload={
+                                'event_type': 'live_detection', 'frame_index': frame_index,
+                                **detection,
+                            },
+                        ))
+                    result_db.commit()
+                frame_index += 1
                 yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n'
         except asyncio.CancelledError:
             pass
         finally:
             capture.release()
+            if result_db:
+                result_db.close()
 
     return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=--frame')
 
@@ -397,12 +460,16 @@ def live_stream(
 @app.post('/api/v1/live/hls/start', dependencies=[Depends(rate_limit)])
 def start_hls_stream(
     url: str = Query(..., description='RTSP/HTTP source URL'),
+    camera_id: str | None = Query(None, description='Registered camera for live result persistence'),
+    db: Session = Depends(session),
     user=Depends(require('admin', 'operator')),
 ):
     if not url.lower().startswith(('rtsp://', 'rtsps://', 'http://', 'https://')):
         raise HTTPException(422, 'Unsupported live source URL')
+    if camera_id and not db.get(Camera, camera_id):
+        raise HTTPException(404, 'Camera not found')
     try:
-        stream = HLS.start(url)
+        stream = HLS.start(url, camera_id=camera_id, detection_callback=_run_hls_detection)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     return {
@@ -420,7 +487,14 @@ def hls_playlist(session_id: str, token: str = Query(...)):
     playlist = stream.directory / 'index.m3u8'
     if not playlist.is_file():
         raise HTTPException(425, 'HLS playlist is still starting')
-    return FileResponse(playlist, media_type='application/vnd.apple.mpegurl', headers={'Cache-Control': 'no-store'})
+    # FFmpeg emits bare segment names. Add the session token so the browser
+    # can fetch every segment through the protected API route.
+    lines = []
+    for line in playlist.read_text(encoding='utf-8').splitlines():
+        if line and not line.startswith('#') and '?' not in line:
+            line = f'{line}?token={token}'
+        lines.append(line)
+    return PlainTextResponse('\n'.join(lines) + '\n', media_type='application/vnd.apple.mpegurl', headers={'Cache-Control': 'no-store'})
 
 
 @app.get('/api/v1/live/hls/{session_id}/{segment}')

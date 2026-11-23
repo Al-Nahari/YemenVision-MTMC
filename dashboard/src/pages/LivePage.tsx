@@ -32,12 +32,12 @@ export default function LivePage() {
   // بث حي عبر RTSP/HTTP (مجدد عن مسار الرفع والمعالجة الأساسي).
   const [rtspUrl, setRtspUrl] = useState('');
   const [streaming, setStreaming] = useState(false);
-  const [streamUrl, setStreamUrl] = useState('');
   const [streamError, setStreamError] = useState('');
-  const [selectedStreamCamera, setSelectedStreamCamera] = useState('');
+  const [selectedStreamCameras, setSelectedStreamCameras] = useState<string[]>([]);
   const [streamFps, setStreamFps] = useState(5);
   const [streamMode, setStreamMode] = useState<'mjpeg' | 'hls'>('mjpeg');
-  const [hlsSession, setHlsSession] = useState<{ id: string; token: string } | null>(null);
+  type LiveStream = { id: string; cameraId: string; url: string; mode: 'mjpeg' | 'hls'; sourceUrl: string; hls?: { id: string; token: string } };
+  const [liveStreams, setLiveStreams] = useState<LiveStream[]>([]);
 
   useEffect(() => {
     if (selectedCamera && cameras.length > 0 && !cameras.some((camera) => camera.id === selectedCamera)) {
@@ -88,39 +88,57 @@ export default function LivePage() {
   const startStream = async () => {
     setError('');
     setStreamError('');
-    const url = rtspUrl.trim();
-    if (!url) {
-      setStreamError('يرجى إدخال رابط البث (RTSP/HTTP).');
+    const selected = cameras.filter((camera) => selectedStreamCameras.includes(camera.id) && camera.stream_url);
+    const sources = selected.length > 0
+      ? selected.map((camera) => ({ cameraId: camera.id, url: camera.stream_url as string }))
+      : rtspUrl.trim()
+        ? [{ cameraId: 'manual', url: rtspUrl.trim() }]
+        : [];
+    if (sources.length === 0) {
+      setStreamError('اختر كاميرا مسجلة لها رابط بث، أو أدخل رابطاً يدوياً.');
       return;
     }
+    const started: LiveStream[] = [];
     try {
-      if (streamMode === 'hls') {
-        const session = await api.startHls(url);
-        const playlist = new URL(api.mediaUrl(session.playlist_url), window.location.origin);
-        const token = new URL(session.playlist_url, window.location.origin).searchParams.get('token') || '';
-        setHlsSession({ id: session.session_id, token });
-        setStreamUrl(playlist.toString());
-      } else {
-        setStreamUrl(api.liveStreamUrl(url, selectedStreamCamera || null, streamFps));
+      for (const source of sources) {
+        if (streamMode === 'hls') {
+          const session = await api.startHls(source.url, source.cameraId === 'manual' ? null : source.cameraId);
+          const playlist = api.mediaUrl(session.playlist_url);
+          const token = new URL(session.playlist_url, window.location.origin).searchParams.get('token') || '';
+          started.push({ id: source.cameraId, cameraId: source.cameraId, url: playlist, sourceUrl: source.url, mode: 'hls', hls: { id: session.session_id, token } });
+        } else {
+          started.push({ id: `${source.cameraId}-${started.length}`, cameraId: source.cameraId, sourceUrl: source.url, mode: 'mjpeg', url: api.liveStreamUrl(source.url, source.cameraId === 'manual' ? null : source.cameraId, streamFps, 640, source.cameraId !== 'manual') });
+        }
       }
+      setLiveStreams(started);
       setStreaming(true);
     } catch (err) {
+      // If one HLS source fails, stop sessions already created in this batch.
+      const partial = started.filter((stream) => stream.hls);
+      await Promise.all(partial.map(async (stream) => {
+        try { await api.stopHls(stream.hls!.id, stream.hls!.token); } catch { /* already stopped */ }
+      }));
       setStreamError(err instanceof ApiError ? err.message : 'تعذّر إنشاء رابط البث. تحقق من تشغيل الخادم.');
     }
   };
 
   const stopStream = async () => {
-    if (hlsSession) {
+    await Promise.all(liveStreams.filter((stream) => stream.hls).map(async (stream) => {
       try {
-        await api.stopHls(hlsSession.id, hlsSession.token);
+        await api.stopHls(stream.hls!.id, stream.hls!.token);
       } catch {
         // The session may already have expired; local cleanup is still safe.
       }
-    }
-    setHlsSession(null);
+    }));
+    setLiveStreams([]);
     setStreaming(false);
-    setStreamUrl('');
     setStreamError('');
+  };
+
+  const toggleStreamCamera = (cameraId: string) => {
+    setSelectedStreamCameras((current) => current.includes(cameraId)
+      ? current.filter((id) => id !== cameraId)
+      : [...current, cameraId]);
   };
 
   const effectiveCameraId = selectedCamera || (selectedVideo ? cameraIdForVideo(selectedVideo) : '');
@@ -306,7 +324,7 @@ export default function LivePage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <label htmlFor="rtsp-url" className="text-xs font-semibold text-slate-400">
                 رابط البث (rtsp:// أو http://):
@@ -323,23 +341,16 @@ export default function LivePage() {
               {streamError && <p className="text-xs text-rose-400">{streamError}</p>}
             </div>
             <div className="pt-5 md:col-span-1">
-              <label htmlFor="stream-camera" className="text-xs font-semibold text-slate-400">
-                كاميرا مرتبطة (اختياري):
-              </label>
-              <select
-                id="stream-camera"
-                aria-label="اختر كاميرا للبث"
-                value={selectedStreamCamera}
-                onChange={(event) => setSelectedStreamCamera(event.target.value)}
-                className="field w-full text-sm text-slate-300"
-              >
-                <option value="">بدون كاميرا مرتبطة</option>
-                {cameras.map((camera) => (
-                  <option key={camera.id} value={camera.id}>
-                    {camera.zone || camera.id} ({camera.id})
-                  </option>
+              <span className="text-xs font-semibold text-slate-400">الكاميرات المسجلة (متعدد):</span>
+              <div className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900 p-2">
+                {cameras.filter((camera) => camera.stream_url).map((camera) => (
+                  <label key={camera.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+                    <input type="checkbox" checked={selectedStreamCameras.includes(camera.id)} onChange={() => toggleStreamCamera(camera.id)} />
+                    <span>{camera.zone || camera.id}</span><span dir="ltr" className="text-slate-500">({camera.id})</span>
+                  </label>
                 ))}
-              </select>
+                {!cameras.some((camera) => camera.stream_url) && <span className="text-xs text-slate-500">لا توجد كاميرات بروابط بث.</span>}
+              </div>
             </div>
             <div className="pt-5 md:col-span-1">
               <label htmlFor="stream-fps" className="text-xs font-semibold text-slate-400">
@@ -380,7 +391,7 @@ export default function LivePage() {
                   onClick={stopStream}
                   className="w-full rounded-xl bg-rose-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-rose-600/30 transition hover:bg-rose-500"
                 >
-                  إيقاف البث
+                  إيقاف جميع البثوث
                 </button>
               ) : (
                 <button
@@ -395,36 +406,22 @@ export default function LivePage() {
             </div>
           </div>
 
-          {streaming ? (
-            <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-xl h-[360px]">
-              <div className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-900/80 px-3 py-1 backdrop-blur-md">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-bold text-white">البث يعمل</span>
-              </div>
-              <div className="bg-black w-full h-full">
-                {streamMode === 'hls' ? (
-                  <video
-                    src={streamUrl}
-                    autoPlay
-                    muted
-                    controls
-                    playsInline
-                    className="w-full h-full object-contain bg-black"
-                    onError={() => setStreamError('تعذّر تشغيل HLS. تأكد من تثبيت FFmpeg ودعم المتصفح.')}
-                  />
-                ) : (
-                  <img
-                    src={streamUrl}
-                    alt="البث المباشر"
-                    className="w-full h-full object-contain bg-black"
-                    onError={() => setStreamError('تعذّر عرض البث. تأكد من أن الرابط صالح والخادم يعمل.')}
-                  />
-                )}
-              </div>
-              {streamError && (
-                <p className="mt-2 text-xs text-rose-400">{streamError}</p>
-              )}
-            </div>
+           {streaming ? (
+             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+               {liveStreams.map((stream) => (
+                 <div key={stream.id} className="relative h-[300px] overflow-hidden rounded-2xl border border-slate-800 bg-black shadow-xl">
+                   <div className="absolute right-3 top-3 z-20 rounded-lg border border-emerald-500/40 bg-emerald-900/80 px-3 py-1 text-xs font-bold text-white backdrop-blur-md">
+                     <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" />{stream.cameraId}
+                   </div>
+                   {stream.mode === 'hls' ? (
+                     <video src={stream.url} autoPlay muted controls playsInline className="h-full w-full object-contain" onError={() => setStreamError(`تعذّر تشغيل HLS للكاميرا ${stream.cameraId}.`)} />
+                   ) : (
+                     <img src={stream.url} alt={`البث ${stream.cameraId}`} className="h-full w-full object-contain" onError={() => setStreamError(`تعذّر عرض بث الكاميرا ${stream.cameraId}.`)} />
+                   )}
+                 </div>
+               ))}
+               {streamError && <p className="text-xs text-rose-400 md:col-span-2">{streamError}</p>}
+             </div>
           ) : (
             <div className="flex h-[360px] items-center justify-center bg-gradient-to-bl from-slate-900 via-slate-950 to-blue-950 rounded-2xl border border-slate-800">
               <p className="text-xs font-mono text-slate-400 text-center p-6">

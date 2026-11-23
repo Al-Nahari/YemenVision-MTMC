@@ -249,11 +249,13 @@ export const api = {
     cameraId: string | null,
     maxFps: number = 5,
     maxWidth: number = 640,
+    persistResults: boolean = true,
   ): string {
     const query = new URLSearchParams();
     query.set('url', url);
     query.set('max_fps', String(maxFps));
     query.set('max_width', String(maxWidth));
+    query.set('persist_results', String(persistResults));
     const key = localStorage.getItem('yv_api_key') || '';
     if (key) query.set('api_key', key);
     if (cameraId) query.set('camera_id', cameraId);
@@ -265,9 +267,9 @@ export const api = {
     return new URL(path, `${root}/`).toString();
   },
 
-  startHls: (url: string) =>
+  startHls: (url: string, cameraId?: string | null) =>
     request<{ session_id: string; playlist_url: string; expires_in: number }>(
-      `/live/hls/start?url=${encodeURIComponent(url)}`,
+      `/live/hls/start?url=${encodeURIComponent(url)}${cameraId ? `&camera_id=${encodeURIComponent(cameraId)}` : ''}`,
       { method: 'POST' },
     ),
 

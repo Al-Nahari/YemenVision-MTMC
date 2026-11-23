@@ -17,6 +17,8 @@ class HlsSession:
     directory: Path
     process: subprocess.Popen
     created_at: float
+    detection_stop: threading.Event
+    detection_thread: threading.Thread | None = None
 
 
 class HlsManager:
@@ -26,7 +28,7 @@ class HlsManager:
         self.sessions: dict[str, HlsSession] = {}
         self.lock = threading.RLock()
 
-    def start(self, source: str) -> HlsSession:
+    def start(self, source: str, camera_id: str | None = None, detection_callback=None) -> HlsSession:
         self.cleanup()
         session_id = secrets.token_hex(12)
         token = secrets.token_urlsafe(24)
@@ -49,7 +51,13 @@ class HlsManager:
                 'FFmpeg is unavailable or incompatible with this operating system. '
                 'Install the win64 GPL static build for AMD64/Intel Windows.'
             ) from exc
-        session = HlsSession(session_id, token, directory, process, time.time())
+        stop_event = threading.Event()
+        session = HlsSession(session_id, token, directory, process, time.time(), stop_event)
+        if camera_id and detection_callback:
+            session.detection_thread = threading.Thread(
+                target=detection_callback, args=(source, camera_id, stop_event), daemon=True,
+            )
+            session.detection_thread.start()
         with self.lock:
             self.sessions[session_id] = session
         return session
@@ -67,6 +75,7 @@ class HlsManager:
                 return False
             self.sessions.pop(session_id, None)
         session.process.terminate()
+        session.detection_stop.set()
         shutil.rmtree(session.directory, ignore_errors=True)
         return True
 
@@ -78,4 +87,5 @@ class HlsManager:
                 session = self.sessions.pop(sid)
                 if session.process.poll() is None:
                     session.process.terminate()
+                session.detection_stop.set()
                 shutil.rmtree(session.directory, ignore_errors=True)
