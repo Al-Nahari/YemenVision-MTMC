@@ -48,6 +48,11 @@ class LocalVideoJobRunner:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def update_progress(self, job_id: str, progress: int) -> None:
+        job = self.get(job_id)
+        if job is not None:
+            self._update(job, progress=max(0, min(99, progress)))
+
     def _update(self, job: VideoJob, **changes: Any) -> None:
         with self._lock:
             for key, value in changes.items():
