@@ -319,11 +319,33 @@ def live_stream(
     async def generate() -> Any:
         import cv2
 
-        capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        # Create the RTSP capture in a worker thread with a hard timeout so an
+        # unreachable stream cannot block the event loop forever.
+        def create_capture() -> Any:
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+            try:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
+            return cap
+
+        try:
+            capture = await asyncio.wait_for(
+                asyncio.to_thread(create_capture),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            yield b'--frame\r\nContent-Type: text/plain\r\n\r\nRTSP stream connection timed out\r\n'
+            return
+        except Exception as exc:
+            yield f'--frame\r\nContent-Type: text/plain\r\n\r\nCannot open RTSP stream: {exc}\r\n'.encode()
+            return
+
         try:
             if not capture.isOpened():
                 yield b'--frame\r\nContent-Type: text/plain\r\n\r\nCannot open RTSP stream\r\n'
                 return
+
             min_interval = 1.0 / max_fps
             last_yield = 0.0
             while True:
@@ -331,7 +353,14 @@ def live_stream(
                 if now - last_yield < min_interval:
                     await asyncio.sleep(0.01)
                     continue
-                jpeg = await asyncio.to_thread(_capture_and_process, capture, detector, max_width)
+                try:
+                    jpeg = await asyncio.wait_for(
+                        asyncio.to_thread(_capture_and_process, capture, detector, max_width),
+                        timeout=8.0,
+                    )
+                except asyncio.TimeoutError:
+                    yield b'--frame\r\nContent-Type: text/plain\r\n\r\nFrame read timed out\r\n'
+                    continue
                 last_yield = now
                 if jpeg is None:
                     await asyncio.sleep(0.05)
