@@ -71,6 +71,9 @@ class Settings:
 
     models_dir: Path = field(default_factory=_default_models_dir)
     trusted_models_only: bool = _env_bool('YV_TRUSTED_MODELS_ONLY', True)
+    # ``auto`` selects CUDA, then Apple MPS, then CPU. A concrete value such
+    # as ``cuda:0`` or ``cpu`` can be used for deployment-specific pinning.
+    inference_device: str = os.getenv('YV_INFERENCE_DEVICE', 'auto').strip().lower()
 
     max_upload_bytes: int = _env_int('YV_MAX_UPLOAD_BYTES', 500 * 1024 * 1024)
     cors_origins: list[str] = field(
@@ -104,6 +107,8 @@ class Settings:
     def __post_init__(self) -> None:
         if self.queue_backend not in {'local', 'redis'}:
             raise ValueError("YV_QUEUE_BACKEND must be 'local' or 'redis'")
+        if self.inference_device != 'auto' and self.inference_device != 'cpu' and self.inference_device != 'mps' and not self.inference_device.startswith('cuda'):
+            raise ValueError("YV_INFERENCE_DEVICE must be auto, cpu, mps, cuda, or cuda:<index>")
         if self.blur_mode not in {'plate_region', 'vehicle', 'off'}:
             raise ValueError("YV_PRIVACY_BLUR_MODE must be 'plate_region', 'vehicle', or 'off'")
         if self.blur_plates and self.blur_mode == 'off':

@@ -189,6 +189,7 @@ def health():
     return {
         'status': 'ok', 'service': 'traffic-platform', 'version': '0.2.0',
         'ffmpeg_available': shutil.which('ffmpeg') is not None,
+        **ModelManager.accelerator_info(),
     }
 
 

@@ -109,6 +109,51 @@ class ModelManager:
     _version_name: str | None = None
     _load_lock = threading.Lock()
     _inference_lock = threading.Lock()
+    _device: str | None = None
+
+    @classmethod
+    def device(cls) -> str:
+        """Return the best available inference device without loading weights."""
+        if cls._device is not None:
+            return cls._device
+        requested = settings.inference_device
+        try:
+            import torch
+            cuda_available = bool(torch.cuda.is_available())
+            mps_available = bool(
+                hasattr(torch.backends, 'mps')
+                and torch.backends.mps.is_available()
+            )
+        except Exception as exc:
+            LOGGER.warning('Could not inspect accelerator availability: %s', exc)
+            cuda_available = mps_available = False
+
+        if requested == 'auto':
+            cls._device = 'cuda:0' if cuda_available else ('mps' if mps_available else 'cpu')
+        elif requested.startswith('cuda'):
+            cls._device = requested if cuda_available else 'cpu'
+            if not cuda_available:
+                LOGGER.warning('YV_INFERENCE_DEVICE=%s requested but CUDA is unavailable; using CPU', requested)
+        elif requested == 'mps':
+            cls._device = 'mps' if mps_available else 'cpu'
+            if not mps_available:
+                LOGGER.warning('YV_INFERENCE_DEVICE=mps requested but MPS is unavailable; using CPU')
+        else:
+            cls._device = 'cpu'
+        return cls._device
+
+    @classmethod
+    def accelerator_info(cls) -> dict[str, Any]:
+        info: dict[str, Any] = {'device': cls.device(), 'cuda_available': False, 'mps_available': False, 'gpu_name': None}
+        try:
+            import torch
+            info['cuda_available'] = bool(torch.cuda.is_available())
+            info['mps_available'] = bool(hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())
+            if info['cuda_available']:
+                info['gpu_name'] = torch.cuda.get_device_name(0)
+        except Exception:
+            pass
+        return info
 
     @classmethod
     def get_detector(cls):
@@ -144,6 +189,16 @@ class ModelManager:
 
             try:
                 model = YOLO(str(record.path))
+                # Moving the model once is more reliable and cheaper than
+                # passing the device on every frame, especially for live feeds.
+                try:
+                    model.to(cls.device())
+                except Exception as device_exc:
+                    if cls.device() == 'cpu':
+                        raise
+                    LOGGER.warning('Device %s could not load the model (%s); falling back to CPU', cls.device(), device_exc)
+                    cls._device = 'cpu'
+                    model.to('cpu')
             except Exception as exc:
                 raise RuntimeError(f'Could not load detector {record.path.name}: {exc}') from exc
 
@@ -157,7 +212,7 @@ class ModelManager:
 
             cls._detector = model
             cls._version_name = record.path.stem
-            LOGGER.info('Loaded verified detector %s', record.path)
+            LOGGER.info('Loaded verified detector %s on %s', record.path, cls.device())
             return model
 
     @classmethod
