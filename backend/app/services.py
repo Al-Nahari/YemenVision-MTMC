@@ -406,17 +406,39 @@ def process_uploaded_video(
         output_path.unlink(missing_ok=True)
         raise ValueError('No frames could be decoded from the uploaded video')
 
+    # A video can be retried after a worker restart. Tracklets are protected by
+    # a natural unique key, so make this finalization idempotent instead of
+    # failing the whole job when the same camera/video/track is already stored.
+    existing_tracklets = {
+        row.local_track_id: row
+        for row in db.scalars(
+            select(Tracklet).where(
+                Tracklet.camera_id == request.camera_id,
+                Tracklet.video_id == display_video_id,
+            )
+        ).all()
+    }
     for track_id, info in track_ids.items():
         if track_id < 0:
             continue
-        db.add(Tracklet(
-            id=f'trk_{uuid4().hex[:16]}', camera_id=request.camera_id, video_id=display_video_id,
-            local_track_id=track_id, start_time=info['start'], end_time=info['end'],
-            payload=json_safe({
-                **info, 'model_version': ModelManager.version(), 'reid_matched': False,
-                'privacy': settings.blur_mode if settings.blur_plates else 'unblurred',
-            }),
-        ))
+        payload = json_safe({
+            **info, 'model_version': ModelManager.version(), 'reid_matched': False,
+            'privacy': settings.blur_mode if settings.blur_plates else 'unblurred',
+        })
+        existing = existing_tracklets.get(track_id)
+        if existing:
+            # SQLAlchemy's SQLite DateTime may return naive values while the
+            # freshly inferred timestamps are UTC-aware; replacing the values
+            # avoids comparing mixed datetime types during retry finalization.
+            existing.start_time = info['start']
+            existing.end_time = info['end']
+            existing.payload = payload
+        else:
+            db.add(Tracklet(
+                id=f'trk_{uuid4().hex[:16]}', camera_id=request.camera_id, video_id=display_video_id,
+                local_track_id=track_id, start_time=info['start'], end_time=info['end'],
+                payload=payload,
+            ))
     db.add(TrafficAggregate(
         id=f'agg_{uuid4().hex[:12]}', camera_id=request.camera_id,
         bucket_start=datetime.now(timezone.utc), granularity='1min',
