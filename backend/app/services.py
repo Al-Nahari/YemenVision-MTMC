@@ -110,6 +110,26 @@ class ModelManager:
     _load_lock = threading.Lock()
     _inference_lock = threading.Lock()
     _device: str | None = None
+    _cuda_usable: bool | None = None
+
+    @classmethod
+    def _cuda_runtime_works(cls, torch_module: Any) -> bool:
+        """Check execution, not just driver visibility.
+
+        ``torch.cuda.is_available()`` can be true for an old GPU even when the
+        installed wheel has no kernels for its compute capability. A one-item
+        operation catches that case before YOLO is moved to CUDA.
+        """
+        if cls._cuda_usable is not None:
+            return cls._cuda_usable
+        try:
+            probe = torch_module.ones(1, device='cuda')
+            probe.add_(1).item()
+            cls._cuda_usable = True
+        except Exception as exc:
+            LOGGER.warning('CUDA driver is visible but unusable by this PyTorch wheel: %s', exc)
+            cls._cuda_usable = False
+        return cls._cuda_usable
 
     @classmethod
     def device(cls) -> str:
@@ -119,7 +139,7 @@ class ModelManager:
         requested = settings.inference_device
         try:
             import torch
-            cuda_available = bool(torch.cuda.is_available())
+            cuda_available = bool(torch.cuda.is_available()) and cls._cuda_runtime_works(torch)
             mps_available = bool(
                 hasattr(torch.backends, 'mps')
                 and torch.backends.mps.is_available()
@@ -146,6 +166,7 @@ class ModelManager:
     def accelerator_info(cls) -> dict[str, Any]:
         info: dict[str, Any] = {
             'device': cls.device(), 'cuda_available': False,
+            'cuda_hardware_available': False,
             'mps_available': False, 'gpu_name': None,
             'torch_version': None, 'torch_cuda_build': None,
         }
@@ -153,7 +174,8 @@ class ModelManager:
             import torch
             info['torch_version'] = torch.__version__
             info['torch_cuda_build'] = torch.version.cuda
-            info['cuda_available'] = bool(torch.cuda.is_available())
+            info['cuda_hardware_available'] = bool(torch.cuda.is_available())
+            info['cuda_available'] = bool(torch.cuda.is_available()) and cls._cuda_runtime_works(torch)
             info['mps_available'] = bool(hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())
             if info['cuda_available']:
                 info['gpu_name'] = torch.cuda.get_device_name(0)
