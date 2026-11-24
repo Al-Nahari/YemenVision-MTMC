@@ -144,9 +144,15 @@ class ModelManager:
 
     @classmethod
     def accelerator_info(cls) -> dict[str, Any]:
-        info: dict[str, Any] = {'device': cls.device(), 'cuda_available': False, 'mps_available': False, 'gpu_name': None}
+        info: dict[str, Any] = {
+            'device': cls.device(), 'cuda_available': False,
+            'mps_available': False, 'gpu_name': None,
+            'torch_version': None, 'torch_cuda_build': None,
+        }
         try:
             import torch
+            info['torch_version'] = torch.__version__
+            info['torch_cuda_build'] = torch.version.cuda
             info['cuda_available'] = bool(torch.cuda.is_available())
             info['mps_available'] = bool(hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())
             if info['cuda_available']:
@@ -302,6 +308,7 @@ def process_uploaded_video(
                 result = detector.track(
                     frame, persist=True, conf=request.conf_threshold,
                     iou=request.iou_threshold, verbose=False,
+                    device=ModelManager.device(),
                 )[0]
             frames += 1
             if progress_callback and frames % 5 == 0:

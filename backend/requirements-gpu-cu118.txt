@@ -1,0 +1,6 @@
+# Optional NVIDIA build for machines with a CUDA-capable NVIDIA GPU.
+# Install this file instead of relying on the CPU torch wheel pulled by the
+# generic requirements file. Python 3.10-3.12 is recommended for these wheels.
+--index-url https://download.pytorch.org/whl/cu118
+torch==2.3.1+cu118
+torchvision==0.18.1+cu118

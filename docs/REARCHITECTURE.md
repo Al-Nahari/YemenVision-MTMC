@@ -46,6 +46,8 @@
 6. **مرحلة البث الإنتاجي (منفذة جزئياً):** جلسات HLS قصيرة العمر عبر FFmpeg، شبكة متعددة الكاميرات في الواجهة، وإيقاف جماعي؛ ملفات HLS مؤقتة تُحذف عند الإيقاف ولا تُسجل كفيديو أرشيفي.
 7. **نتائج البث الحي:** MJPEG وHLS يشغلان كشفاً منخفض المعدل ويحفظان `DetectionEvent` فقط عند ربط الجلسة بكاميرا مسجلة؛ لا يُحفظ الفيديو الأصلي.
 8. **تسريع الاستدلال:** يختار النظام تلقائياً CUDA على بطاقات NVIDIA، ثم Apple MPS، ثم CPU. يمكن فرض الاختيار عبر `YV_INFERENCE_DEVICE`، وتظهر النتيجة في `/api/v1/health`.
+
+> ملاحظة تشغيل NVIDIA: وجود تعريف NVIDIA وحده لا يكفي؛ يجب تثبيت نسخة PyTorch تحتوي CUDA. في Windows استخدم Python 3.10–3.12 ثم `pip install -r backend/requirements-gpu-cu118.txt` بدلاً من نسخة CPU. بعد ذلك أعد تشغيل Backend وتحقق من `cuda_available: true` في health.
 4. **الإنتاج:** FFmpeg/WebRTC للبث، Prometheus metrics، structured logs، health/readiness probes، وCI/CD.
 
 ## قرار مهم

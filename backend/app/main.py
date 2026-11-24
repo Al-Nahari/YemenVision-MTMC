@@ -99,7 +99,7 @@ def _capture_and_process(capture: Any, detector: Any, max_width: int) -> tuple[b
         ratio = max_width / width
         frame = cv2.resize(frame, (max_width, max(1, int(height * ratio))))
     with ModelManager.inference_lock():
-        results = detector(frame, conf=0.25, iou=0.45, verbose=False)[0]
+        results = detector(frame, conf=0.25, iou=0.45, verbose=False, device=ModelManager.device())[0]
     boxes = results.boxes
     detections: list[dict[str, Any]] = []
     if boxes is None or len(boxes) == 0:
