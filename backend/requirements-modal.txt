@@ -1,0 +1,2 @@
+# Optional: only needed when invoking Modal from the local backend/CLI.
+modal>=1.6,<2
